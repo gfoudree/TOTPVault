@@ -1,0 +1,6 @@
+/.vscode
+/.github
+__pycache__
+/.embuild
+/target
+/Cargo.lock
