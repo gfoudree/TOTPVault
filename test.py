@@ -1,3 +1,6 @@
+import base64
+import os
+
 from pwn import *
 import struct
 import datetime
@@ -8,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.backends import default_backend
 from cryptography.exceptions import InvalidSignature
 import binascii
+import pyotp
 
 # binascii.a2b_hex('aabbcc')
 def checkEd25519Signature(public_key_bytes, signature_bytes, message_bytes):
@@ -111,8 +115,6 @@ class TestFirmware(unittest.TestCase):
         self.s.send(b'\x11' + msgpack.packb(["google.com", "A"*32]))
         self.assertIn(b"Vault locked", self.s.recv())
 
-
-
         # Unlock the vault
         self.s.send(b"\x1A" + msgpack.packb(["badpassword"]))
         self.assertIn(b"Wrong password", self.s.recv())
@@ -139,6 +141,36 @@ class TestFirmware(unittest.TestCase):
         self.s.send(b'\x12')
         r = self.s.recv()
         self.assertIn(b"google.com", r)
+
+    def test_totp(self):
+        # Init & unlock vault
+        pw = "password12345!"
+        self.s.send(b'\x1B' + msgpack.packb([pw]))
+        self.assertIn(b"Success", self.s.recv())
+        self.s.send(b"\x1A" + msgpack.packb([pw]))
+        self.assertIn(b"Unlocked!", self.s.recv())
+
+        # Set time
+        ts = int(datetime.datetime.now().timestamp())
+        self.s.send(b'\x10' + msgpack.packb([ts]))
+        self.assertIn(b"Success", self.s.recv())
+
+        # Create valid item
+        totp_secret = base64.b32encode(os.getrandom(32)).decode()
+        self.s.send(b'\x11' + msgpack.packb(["google.com", totp_secret]))
+        self.assertIn(b"Success", self.s.recv())
+
+        # Get code
+        self.s.send(b'\x14' + msgpack.packb(["google.com"]))
+        resp = self.s.recv()
+        print(resp)
+        print(f"Secret key {totp_secret}\n Curent timestamp " + str(datetime.datetime.now().timestamp()))
+
+        totp = pyotp.TOTP(totp_secret, interval=30, digits=6).now()
+        returned_totp = resp.decode().split(':')[1].replace('\n', '').replace(' ', '')
+        self.assertEqual(returned_totp, totp)
+
+
 """
 # Set time
 ts = int(datetime.datetime.now().timestamp())

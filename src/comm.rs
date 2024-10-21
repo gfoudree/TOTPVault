@@ -115,6 +115,7 @@ impl Validate for CreateEntryMsg {
         }
     
         // TODO: establish correct values
+        // TODO: Base32 encoding is not going to always be the same length (?) how do we handle this?
         if self.totp_secret.len() > MAX_TOTP_SECRET_LEN || self.totp_secret.len() < MIN_TOTP_SECRET_LEN {
             #[cfg(debug_assertions)]
             println!("TOTP secret is > {MAX_TOTP_SECRET_LEN} bytes or < {MIN_TOTP_SECRET_LEN} bytes!");

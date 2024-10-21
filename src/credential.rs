@@ -43,7 +43,10 @@ impl Credential {
             return Err("Invalid credential!".to_string());
         }
 
-        let totp = totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, totp_rs::Secret::Encoded("KRSXG5CTMVRXEZLUKN2XAZLSKNSWG4TFOQ".to_string()).to_bytes().unwrap()).map_err(|e| format!("Error initializing TOTP: {}", e))?;
+        let totp_encoded_secret = cred.totp_secret_decrypted.clone().unwrap();
+        let totp = totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30,
+                                      totp_rs::Secret::Encoded(totp_encoded_secret).to_bytes().unwrap()).map_err(|e| format!("Error initializing TOTP: {}", e))?;
+
         let token = totp.generate_current().map_err(|e| format!("Error generating TOTP code: {}", e))?;
         Ok(token)
     }

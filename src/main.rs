@@ -165,8 +165,11 @@ impl System {
                 let mut cred = Credential::get_credential(index, &self.key)?;
 
                 let totp_code = Credential::gen_totp(&cred)?;
+                #[cfg(debug_assertions)]
+                {
+                    println!("[TOTP] Current time: {}\t Secret Key: {}", Utc::now().timestamp(), &cred.totp_secret_decrypted.clone().unwrap());
+                }
                 cred.totp_secret_decrypted.zeroize();
-                // TODO: change to i2c display, for now just send it over serial
                 Ok(totp_code)
             },
             Err(e) => {
@@ -415,7 +418,7 @@ fn main() {
                             writeln!(uart, "Invalid AuthenticateChallengeMsg message").unwrap();
                         }
                     } else {
-                        writeln!(uart, "Invalid AuthenticateChallengeMsg messagee").unwrap();
+                        writeln!(uart, "Invalid AuthenticateChallengeMsg message").unwrap();
                     }
                 }
                 CMD_GET_PUBKEY => {
