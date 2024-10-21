@@ -1,4 +1,5 @@
 /.vscode
+.idea
 /.github
 __pycache__
 /.embuild

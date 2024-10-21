@@ -47,14 +47,14 @@ pub struct DisplayCodeMsg {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AuthenticateChallengeMsg {
-    pub nonce_challenge: String,
+    pub nonce_challenge: Vec<u8>,
 }
 
 impl Validate for AuthenticateChallengeMsg {
     fn validate(&self) -> bool {
-        if self.nonce_challenge.len() != NONCE_CHALLENGE_LEN || self.nonce_challenge.as_bytes().len() != NONCE_CHALLENGE_LEN {
+        if self.nonce_challenge.len() != NONCE_CHALLENGE_LEN {
             #[cfg(debug_assertions)]
-            println!("Domain name is > {MAX_DOMAIN_LEN} bytes or < {MIN_DOMAIN_LEN} bytes!");
+            println!("Nonce size of {} is != {NONCE_CHALLENGE_LEN}", self.nonce_challenge.len());
 
             return false;
         }
@@ -79,7 +79,7 @@ impl Validate for SetTimeMsg {
         // Check if the timestamp is something valid (later than 10/10/2024)
         if self.unix_timestamp < MIN_TIMESTAMP {
             #[cfg(debug_assertions)]
-            println!("UNIX timestamp is less than {MIN_TIMESTAMP}");
+            println!("UNIX timestamp {} is less than {MIN_TIMESTAMP}", self.unix_timestamp);
 
             return false;
         }

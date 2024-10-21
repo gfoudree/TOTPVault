@@ -23,10 +23,30 @@ def checkEd25519Signature(public_key_bytes, signature_bytes, message_bytes):
 
 class TestFirmware(unittest.TestCase):
     def setUp(self):
-        self.s = serialtube(port='/dev/ttyACM0')
-        self.s.timeout = 2
+        self.s = serialtube(port='/dev/ttyACM1')
+        self.s.timeout = 5
         if self.s.can_recv(1):
             self.s.recv()
+
+        # Lock the vault just in case we're doing runs on a previously unlocked vault
+
+        self.s.send(b'\x1E')
+        self.assertIn(b"locked", self.s.recv())
+    def test_attestation(self):
+        # Get pubkey
+        self.s.send(b'\x1D')
+        pubkey = self.s.recv().replace(b'\n', b'')
+        print(f"Public key: {pubkey}")
+        self.assertTrue(len(pubkey) == 64) # Length is 32 bytes but in hex, so 64
+
+        # Generate nonce
+        randombytes = os.urandom(64)
+
+        # Send challenge
+        self.s.send(b'\x1C' + msgpack.packb([randombytes], use_bin_type=True))
+        resp = self.s.recv().replace(b'\n', b'')
+
+        self.assertTrue(checkEd25519Signature(binascii.a2b_hex(pubkey), binascii.a2b_hex(resp), randombytes))
 
     def test_get_host_info(self):
         # Get host info
@@ -113,7 +133,7 @@ class TestFirmware(unittest.TestCase):
 
         # Create valid item
         self.s.send(b'\x11' + msgpack.packb(["google.com", "A"*32]))
-        self.assertIn(b"Saved!", self.s.recv())
+        self.assertIn(b"Success", self.s.recv())
 
         # Check that it appears in the list
         self.s.send(b'\x12')
