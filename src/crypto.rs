@@ -73,6 +73,7 @@ pub fn get_pubkey() -> Result<String, String> {
     let pubkey = pkey.verifying_key();
     
     // Convert it into a string
-    let pubkey_hex = pubkey.as_bytes().iter().map(|e| format!("{:02X}", e)).collect::<Vec<String>>().join("");
-    Ok(pubkey_hex)
+    let encoded = base64::encode(pubkey.as_bytes());
+    //let pubkey_hex = pubkey.as_bytes().iter().map(|e| format!("{:02X}", e)).collect::<Vec<String>>().join("");
+    Ok(encoded)
 }

@@ -12,6 +12,9 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::Sha256;
 use std::fmt::Write;
+use esp_idf_svc::hal::uart::Uart;
+use rmp_serde::Serializer;
+use serde::Serialize;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
@@ -67,14 +70,14 @@ impl System {
         buffer
     }
 
-    fn setup_uart<'a>(&self) -> uart::UartDriver<'a> {
+    fn setup_uart<'a>(&mut self) -> uart::UartDriver<'a> {
         let peripherals = Peripherals::take().unwrap();
-    
+
         let config = uart::config::Config::default()
             .baudrate(Hertz(115_200))
             .flow_control(uart::config::FlowControl::None);
         let pins = peripherals.pins;
-    
+
         let uart: uart::UartDriver = uart::UartDriver::new(
             peripherals.uart1,
             pins.gpio16,
@@ -84,14 +87,14 @@ impl System {
             &config,
         )
         .expect("Error initializing UART Driver");
-    
+
         uart
     }
 
     fn setup_ed25519() -> Result<(), String> {
         let mut rng = OsRng;
         let key: SigningKey = SigningKey::generate(&mut rng);
-    
+
         let mut secret_bytes: [u8; SECRET_KEY_LENGTH] = key.to_bytes();
         nvs_write_blob(NVS_KEY_ED25519, &secret_bytes)?;
         secret_bytes.zeroize();
@@ -100,7 +103,7 @@ impl System {
 
     fn init_vault(&mut self, cmd_buf: &[u8; 512], _read_bytes: usize) -> Result<(), String> {
         let initmsg = rmp_serde::from_slice::<InitVaultMsg>(&cmd_buf[1..]).map_err(|_| format!("Invalid InitVault message"))?;
-        
+
         if !initmsg.validate() {
             return Err("Invalid InitVault message".to_string());
         }
@@ -158,7 +161,7 @@ impl System {
         if self.time_set == false {
             return Err("System time has not been set!".to_string());
         }
-        
+
         match rmp_serde::from_slice::<DisplayCodeMsg>(&cmd_buf[1..]) {
             Ok(displaycodemsg) => {
                 let index = Credential::credential_name_to_index(displaycodemsg.domain_name, &self.key)?;
@@ -235,7 +238,7 @@ impl System {
             unsafe {
                 sys::gettimeofday(&mut current_tv, core::ptr::null_mut());
             }
-            
+
             // Is the new timestamp LESS than the current one OR is the difference between the new and old one > the allowed delta?
             if new_unix_timestamp < current_tv.tv_sec as u64 || (new_unix_timestamp - current_tv.tv_sec as u64) > MAX_TIMESTAMP_SET_DELTA {
                 return Err("Invalid timestamp".to_string());
@@ -296,6 +299,16 @@ impl System {
     }
 }
 
+pub fn send_message<T: Serialize>(uart: &uart::UartDriver, msg: &T) {
+    let mut buf = Vec::new();
+    msg.serialize(&mut Serializer::new(&mut buf)).unwrap();
+    //write!(uart, "{}", buf).unwrap();
+    uart.write(&buf).unwrap();
+}
+
+fn send_response_message(uart: &mut uart::UartDriver, msg: &str) {
+    write!(uart, "{}", msg).unwrap();
+}
 
 
 fn main() {
@@ -328,7 +341,7 @@ fn main() {
             let command = buf[0];
             match command {
                 CMD_SET_TIME => match sys.set_time(&buf, num) {
-                    Ok(_) => writeln!(uart, "Success").unwrap(),
+                    Ok(_) => writeln!(uart, "{}", SUCCESS_MSG).unwrap(),
                     Err(e) => writeln!(uart, "{}", e).unwrap(),
                 },
                 CMD_CREATE => {
@@ -336,7 +349,7 @@ fn main() {
                         writeln!(uart, "Vault locked!").unwrap();
                     } else {
                         match sys.create_entry(&buf, num) {
-                            Ok(_) => writeln!(uart, "Success").unwrap(),
+                            Ok(_) => writeln!(uart, "{}", SUCCESS_MSG).unwrap(),
                             Err(e) => writeln!(uart, "{}", e).unwrap(),
                         }
                     }
@@ -358,7 +371,7 @@ fn main() {
                         if let Ok(delmsg) = rmp_serde::from_slice::<DeleteEntryMsg>(&buf[1..]) {
                             if delmsg.validate() {
                                 match Credential::delete_credential_by_name(delmsg.domain_name, &sys.key) {
-                                    Ok(()) => writeln!(uart, "Success").unwrap(),
+                                    Ok(_) => writeln!(uart, "{}", SUCCESS_MSG).unwrap(),
                                     Err(e) => writeln!(uart, "Error deleting credential: {}", e).unwrap(),
                                 }
                             } else {
@@ -383,22 +396,34 @@ fn main() {
                     }
                 }
                 CMD_DEV_INFO => {
-                    writeln!(
-                        uart,
-                        "2FA Cube Version 0.1\nSystem Time: {}",
-                        Utc::now().timestamp()
-                    )
-                    .unwrap();
+                    if let Ok(pubkey) = get_pubkey() {
+                        // TODO: add calculation of used/free slots
+                        let infomsg = SystemInfoMsg{
+                            total_slots: MAX_CREDENTIALS,
+                            used_slots: 0,
+                            free_slots: 0,
+                            current_timestamp: Utc::now().timestamp() as u64,
+                            version_str: "2FA Cube Version 0.1".to_string(),
+                            vault_unlocked: sys.vault_unlocked,
+                            public_key: pubkey,
+                        };
+
+                        send_message(&uart, &infomsg);
+
+                    }
+                    else {
+                        writeln!(uart, "Critical error: ED25519 public key missing!").unwrap();
+                    }
                 }
                 CMD_UNLOCK_VAULT => {
                     // TODO: use subtle crypto library when needed!
                     match sys.unlock_vault(&buf, num) {
-                        Ok(_) => writeln!(uart, "Unlocked!").unwrap(),
+                        Ok(_) => writeln!(uart, "{}", SUCCESS_MSG).unwrap(),
                         Err(_) => writeln!(uart, "Wrong password").unwrap(),
                     };
                 }
                 CMD_INIT_VAULT => match sys.init_vault(&buf, num) {
-                    Ok(_) => writeln!(uart, "Success").unwrap(),
+                    Ok(_) => writeln!(uart, "{}", SUCCESS_MSG).unwrap(),
                     Err(e) => writeln!(uart, "{}", e).unwrap(),
                 },
                 CMD_ATTEST => {
@@ -423,16 +448,14 @@ fn main() {
                 }
                 CMD_GET_PUBKEY => {
                     match get_pubkey() {
-                        Ok(pubkey) => {
-                            writeln!(uart, "{}", pubkey).unwrap();
-                        }
+                        Ok(pubkey) => writeln!(uart, "{}", pubkey).unwrap(),
                         Err(e) => writeln!(uart, "Critical error: ED25519 public key missing! {}", e).unwrap()
                     }
                 }
                 CMD_LOCK_VAULT => {
                     sys.vault_unlocked = false;
                     sys.key.zeroize();
-                    writeln!(uart, "Vault locked!").unwrap();
+                    writeln!(uart, "{}", SUCCESS_MSG).unwrap();
                 }
                 _ => {}
             }

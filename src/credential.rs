@@ -89,11 +89,11 @@ impl Credential {
         println!("TOTP Secret: {:?}", plaintext);
 
         // TODO: check that this is valid
-        cred.totp_secret_decrypted = Some(String::from_utf8(plaintext).unwrap());
+        cred.totp_secret_decrypted = Some(String::from_utf8(plaintext).map_err(|e| format!("Error with decrypted TOTP secret: {}", e))?);
 
         #[cfg(debug_assertions)]
         println!("Cred: {:?}", cred);
-        
+
         Ok(cred)
     }
 
@@ -130,7 +130,7 @@ impl Credential {
         if Self::credential_name_to_index(cred.domain_name.clone(), encryption_key).is_ok() {
             return Err("Credential name already in use!".to_string());
         }
-        
+
         // Check if the credential is valid
         if cred.totp_secret_decrypted.is_none() {
             return Err("No secret to save!".to_string());

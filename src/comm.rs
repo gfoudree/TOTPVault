@@ -10,6 +10,7 @@ const MAX_PW_LEN: usize = 128;
 const MIN_TIMESTAMP: u64 = 1728590640;
 pub const NONCE_CHALLENGE_LEN: usize = 64;
 
+pub const SUCCESS_MSG: &str = "Success!";
 pub trait Validate {
     fn validate(&self) -> bool;
 }
@@ -50,6 +51,17 @@ pub struct AuthenticateChallengeMsg {
     pub nonce_challenge: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SystemInfoMsg {
+    pub total_slots: u8,
+    pub used_slots: u8,
+    pub free_slots: u8,
+    pub current_timestamp: u64,
+    pub version_str: String,
+    pub vault_unlocked: bool,
+    pub public_key: String,
+}
+
 impl Validate for AuthenticateChallengeMsg {
     fn validate(&self) -> bool {
         if self.nonce_challenge.len() != NONCE_CHALLENGE_LEN {
@@ -67,7 +79,7 @@ impl Validate for DeleteEntryMsg {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
             #[cfg(debug_assertions)]
             println!("Domain name is > {MAX_DOMAIN_LEN} bytes or < {MIN_DOMAIN_LEN} bytes!");
-    
+
             return false;
         }
         true
@@ -110,24 +122,24 @@ impl Validate for CreateEntryMsg {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
             #[cfg(debug_assertions)]
             println!("Domain name is > {MAX_DOMAIN_LEN} bytes or < {MIN_DOMAIN_LEN} bytes!");
-    
+
             return false;
         }
-    
+
         // TODO: establish correct values
         // TODO: Base32 encoding is not going to always be the same length (?) how do we handle this?
         if self.totp_secret.len() > MAX_TOTP_SECRET_LEN || self.totp_secret.len() < MIN_TOTP_SECRET_LEN {
             #[cfg(debug_assertions)]
             println!("TOTP secret is > {MAX_TOTP_SECRET_LEN} bytes or < {MIN_TOTP_SECRET_LEN} bytes!");
-    
+
             return false;
         }
-    
+
         // Check if secret is valid BASE32 per the spec
         if BASE32.decode(self.totp_secret.as_bytes()).is_err() {
             #[cfg(debug_assertions)]
             println!("TOTP secret is not valid base32!");
-    
+
             return false;
         }
         true

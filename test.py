@@ -35,7 +35,7 @@ class TestFirmware(unittest.TestCase):
         # Lock the vault just in case we're doing runs on a previously unlocked vault
 
         self.s.send(b'\x1E')
-        self.assertIn(b"locked", self.s.recv())
+        self.assertIn(b"Success", self.s.recv())
     def test_attestation(self):
         # Get pubkey
         self.s.send(b'\x1D')
@@ -79,7 +79,7 @@ class TestFirmware(unittest.TestCase):
 
         self.assertGreaterEqual(new_timestamp, ts)
         self.assertGreater(new_timestamp, current_timestamp)
-    
+
     def test_setting_invalid_time(self):
         # 105 is way too low
         self.s.send(b'\x10' + msgpack.packb([105]))
@@ -120,7 +120,7 @@ class TestFirmware(unittest.TestCase):
         self.assertIn(b"Wrong password", self.s.recv())
 
         self.s.send(b"\x1A" + msgpack.packb([pw]))
-        self.assertIn(b"Unlocked!", self.s.recv())
+        self.assertIn(b"Success", self.s.recv())
 
         # Vault unlocked, list items
         self.s.send(b'\x12')
@@ -142,77 +142,59 @@ class TestFirmware(unittest.TestCase):
         r = self.s.recv()
         self.assertIn(b"google.com", r)
 
+    def test_delete(self):
+        # Init & unlock vault
+        pw = "password12345!"
+        self.s.send(b'\x1B' + msgpack.packb([pw]))
+        self.assertIn(b"Success", self.s.recv())
+        self.s.send(b"\x1A" + msgpack.packb([pw]))
+        self.assertIn(b"Success", self.s.recv())
+
+        # Create valid item
+        totp_secret = base64.b32encode(os.getrandom(32)).decode()
+        self.s.send(b'\x11' + msgpack.packb(["test.com", totp_secret]))
+        self.assertIn(b"Success", self.s.recv())
+
+        # Check that it appears in the list
+        self.s.send(b'\x12')
+        self.assertIn(b"test.com", self.s.recv())
+
+        # Delete item
+        self.s.send(b'\x13' + msgpack.packb(["test.com"]))
+        self.assertIn(b"Success", self.s.recv())
+
+        # Check that it is NOT in the list
+        self.s.send(b'\x12')
+        self.assertNotIn(b"test.com", self.s.recv())
+
     def test_totp(self):
         # Init & unlock vault
         pw = "password12345!"
         self.s.send(b'\x1B' + msgpack.packb([pw]))
         self.assertIn(b"Success", self.s.recv())
         self.s.send(b"\x1A" + msgpack.packb([pw]))
-        self.assertIn(b"Unlocked!", self.s.recv())
+        self.assertIn(b"Success", self.s.recv())
 
         # Set time
         ts = int(datetime.datetime.now().timestamp())
         self.s.send(b'\x10' + msgpack.packb([ts]))
         self.assertIn(b"Success", self.s.recv())
 
-        # Create valid item
-        totp_secret = base64.b32encode(os.getrandom(32)).decode()
-        self.s.send(b'\x11' + msgpack.packb(["google.com", totp_secret]))
-        self.assertIn(b"Success", self.s.recv())
+        for domain in ["google.com", "cloudflare", "facebook"]:
+            # Create valid item
+            totp_secret = base64.b32encode(os.getrandom(32)).decode()
+            self.s.send(b'\x11' + msgpack.packb([domain, totp_secret]))
+            self.assertIn(b"Success", self.s.recv())
 
-        # Get code
-        self.s.send(b'\x14' + msgpack.packb(["google.com"]))
-        resp = self.s.recv()
-        print(resp)
-        print(f"Secret key {totp_secret}\n Curent timestamp " + str(datetime.datetime.now().timestamp()))
+            # Get code
+            self.s.send(b'\x14' + msgpack.packb([domain]))
+            resp = self.s.recv()
+            print(resp)
+            print(f"Secret key {totp_secret}\n Current timestamp " + str(datetime.datetime.now().timestamp()))
 
-        totp = pyotp.TOTP(totp_secret, interval=30, digits=6).now()
-        returned_totp = resp.decode().split(':')[1].replace('\n', '').replace(' ', '')
-        self.assertEqual(returned_totp, totp)
-
-
-"""
-# Set time
-ts = int(datetime.datetime.now().timestamp())
-s.send(b'\x10' + msgpack.packb([ts]))
-print(s.recv())
-
-
-# Init vault
-s.send(b'\x1B' + msgpack.packb(["password1234"]))
-print(s.recv())
-
-# Unlock vault
-s.send(b'\x1A' + msgpack.packb(["badpasswod"]))
-print(s.recv())
-s.send(b'\x1A' + msgpack.packb(["password1234"]))
-print(s.recv())
-
-
-# test listing
-s.send(b'\x12')
-print(s.recv())
-
-# Test creating
-s.send(b'\x11' + msgpack.packb(['google.com', '938fj1fif883']))
-print(s.recv())
-
-# test listing
-s.send(b'\x12')
-print(s.recv())
-
-
-# Test vault init
-s.send(b'\x1B' + b"password1234")
-print(s.recv())
-
-# Unlock vault
-s.send(b'\x1ABadPassword')
-print(s.recv())
-s.send(b'\x1Apassword1234')
-print(s.recv())
-
-"""
+            totp = pyotp.TOTP(totp_secret, interval=30, digits=6).now()
+            returned_totp = resp.decode().split(':')[1].replace('\n', '').replace(' ', '')
+            self.assertEqual(returned_totp, totp)
 
 if __name__ == '__main__':
     unittest.main()
