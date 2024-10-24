@@ -12,7 +12,6 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::Sha256;
 use std::fmt::Write;
-use esp_idf_svc::hal::uart::Uart;
 use rmp_serde::Serializer;
 use serde::Serialize;
 use subtle::ConstantTimeEq;
@@ -35,8 +34,10 @@ const CMD_DEV_INFO: u8 = 0x15;
 const CMD_UNLOCK_VAULT: u8 = 0x1A;
 const CMD_INIT_VAULT: u8 = 0x1B;
 const CMD_ATTEST: u8 = 0x1C;
-const CMD_GET_PUBKEY: u8 = 0x1D;
 const CMD_LOCK_VAULT: u8 = 0x1E;
+pub const MSG_STATUS_MSG: u8 = 0x01;
+pub const MSG_SYSINFO: u8 = 0x20;
+pub const MSG_ATTESTATION_RESPONSE: u8 = 0x21;
 
 const SALT_LEN: usize = 32; // 256 bits
 const KDF_ROUNDS: u32 = 100;
@@ -299,17 +300,18 @@ impl System {
     }
 }
 
-pub fn send_message<T: Serialize>(uart: &uart::UartDriver, msg: &T) {
+pub fn send_message<T: Message + Serialize>(uart: &uart::UartDriver, msg: &T) {
     let mut buf = Vec::new();
-    msg.serialize(&mut Serializer::new(&mut buf)).unwrap();
-    //write!(uart, "{}", buf).unwrap();
+    buf.push(msg.message_type_byte()); // Add the message type byte to the beginning
+
+    msg.serialize(&mut Serializer::new(&mut buf)).unwrap(); // Add the remaining bytes into the buffer
     uart.write(&buf).unwrap();
 }
 
-fn send_response_message(uart: &mut uart::UartDriver, msg: &str) {
-    write!(uart, "{}", msg).unwrap();
+pub fn send_response_message(uart: &mut uart::UartDriver, msg: &str, error: bool) {
+    let status_msg = StatusMsg{ error, message: msg.to_string() };
+    send_message(uart, &status_msg);
 }
-
 
 fn main() {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -409,10 +411,10 @@ fn main() {
                         };
 
                         send_message(&uart, &infomsg);
-
                     }
                     else {
-                        writeln!(uart, "Critical error: ED25519 public key missing!").unwrap();
+                        send_response_message(&mut uart, "Critical error: ED25519 public key missing!", true);
+                        //writeln!(uart, "Critical error: ED25519 public key missing!").unwrap();
                     }
                 }
                 CMD_UNLOCK_VAULT => {
@@ -430,12 +432,20 @@ fn main() {
                     // Generate pub/priv keypair during vault init or first boot (?) if first boot, we have to make sure we NEVER wipe it! Maybe store in eFuse
                     // Respond to a challenge and authenticate the HW to avoid evil maid attacks
                     // Use hardware digital signature module with ESP32
+                    #[cfg(debug_assertions)]
+                    println!("Challenge Raw Bytes: {}", hex::encode(&buf));
+
                     if let Ok(challenge_msg) = rmp_serde::from_slice::<AuthenticateChallengeMsg>(&buf[1..]) {
                         if challenge_msg.validate() {
-                            let challenge_bytes: [u8; NONCE_CHALLENGE_LEN] = challenge_msg.nonce_challenge.try_into().unwrap();
+                            let challenge_bytes: [u8; NONCE_CHALLENGE_LEN] = base64::decode(challenge_msg.nonce_challenge.clone()).unwrap().try_into().unwrap();
                             match sign_challenge(&challenge_bytes) {
                                 Ok(sig) =>  {
-                                    writeln!(uart, "{}", sig).unwrap();
+
+                                    #[cfg(debug_assertions)] {
+                                        println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_pubkey().unwrap(), challenge_msg.nonce_challenge, sig);
+                                    }
+                                    let attestation_response_msg = AttestationResponseMsg{message: sig.to_string()};
+                                    send_message(&uart, &attestation_response_msg);
                                 }
                                 Err(e) => writeln!(uart, "Error signing challenge! {}", e).unwrap(),
                             }
@@ -444,12 +454,6 @@ fn main() {
                         }
                     } else {
                         writeln!(uart, "Invalid AuthenticateChallengeMsg message").unwrap();
-                    }
-                }
-                CMD_GET_PUBKEY => {
-                    match get_pubkey() {
-                        Ok(pubkey) => writeln!(uart, "{}", pubkey).unwrap(),
-                        Err(e) => writeln!(uart, "Critical error: ED25519 public key missing! {}", e).unwrap()
                     }
                 }
                 CMD_LOCK_VAULT => {

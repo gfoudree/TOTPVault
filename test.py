@@ -1,4 +1,5 @@
 import base64
+import copy
 import os
 
 from pwn import *
@@ -13,6 +14,10 @@ from cryptography.exceptions import InvalidSignature
 import binascii
 import pyotp
 
+STATUS_MSG = 0x01
+SYSINFO_MSG = 0x20
+MSG_ATTESTATION_RESPONSE = 0x21
+
 # binascii.a2b_hex('aabbcc')
 def checkEd25519Signature(public_key_bytes, signature_bytes, message_bytes):
     # Load the public key
@@ -25,9 +30,17 @@ def checkEd25519Signature(public_key_bytes, signature_bytes, message_bytes):
     except InvalidSignature:
         return False
 
+# Return a tuple of a decoded STATUS_MSG -> (is_error (boolean), str (string))
+def getResponse(buf):
+    if buf[0] == STATUS_MSG:
+        decoded = msgpack.unpackb(buf[1:])
+        return (decoded[0], decoded[1])
+    else:
+        return (None, None)
+
 class TestFirmware(unittest.TestCase):
     def setUp(self):
-        self.s = serialtube(port='/dev/ttyACM1')
+        self.s = serialtube(port='/dev/ttyACM0')
         self.s.timeout = 5
         if self.s.can_recv(1):
             self.s.recv()
@@ -38,19 +51,40 @@ class TestFirmware(unittest.TestCase):
         self.assertIn(b"Success", self.s.recv())
     def test_attestation(self):
         # Get pubkey
-        self.s.send(b'\x1D')
-        pubkey = self.s.recv().replace(b'\n', b'')
-        print(f"Public key: {pubkey}")
-        self.assertTrue(len(pubkey) == 64) # Length is 32 bytes but in hex, so 64
+        self.s.send(b'\x15')
+        dev_info_bytes = self.s.recv()
+        self.assertTrue(dev_info_bytes[0] == SYSINFO_MSG) # Make sure it's a MSG_SYSINFO response
+        # Unpack response
+        dev_info = msgpack.unpackb(dev_info_bytes[1:])
+        pubkey = dev_info[6]
+
+        self.assertTrue(len(b64d(pubkey)) == 32) # Length is 32 bytes
 
         # Generate nonce
         randombytes = os.urandom(64)
 
         # Send challenge
-        self.s.send(b'\x1C' + msgpack.packb([randombytes], use_bin_type=True))
-        resp = self.s.recv().replace(b'\n', b'')
+        buf = b'\x1C' + msgpack.packb([b64e(randombytes)])
+        print(hexdump(buf))
+        self.s.send(buf)
+        resp = self.s.recv()
+        self.assertTrue(resp[0] == MSG_ATTESTATION_RESPONSE)
+        signature = msgpack.unpackb(resp[1:])[0]
+        print(f"\nPublic key: {binascii.b2a_hex(b64d(pubkey)).decode()}\nChallenge: {binascii.b2a_hex(randombytes).decode()}\nSignature: {signature}")
+        self.assertTrue(checkEd25519Signature(b64d(pubkey), binascii.a2b_hex(signature), randombytes))
+        # TODO: Run LOTS of tests of this, for some reason signatures are occasionally failing
+        """
+        Public key: b'8242ac6f17c46c30bd804cfe61dc8404155face61b26f1d2e35e71a53ab38db5'
+        Challenge: b'839bfeabf3b1b5d490e5421cf0083221ab565ed7cbcdb378cbb2e6154bd6edc1370c47aca051fcbb9beac10bce9ab7c3bb73ff114f8d19d7da34f30ad9d11b2b'
+        Signature: 220894384B216D5DC204B34B65F988F8C90F087F641F854DC978F09DECB8B2618108555BC802797E1A88650350CC7A493091BCB25C81602A84652AB73A1B5703
+        FAIL
+        
+        Public key: b'8242ac6f17c46c30bd804cfe61dc8404155face61b26f1d2e35e71a53ab38db5'
+        Challenge: b'8e60e273713eeae67fdcc7bba65aa568581ba419dd8d1ef3c33107079bbc36fb01dbf6115c92b554aa0d990d392b09250ac44897068e7f0be9902be20d79a87c'
+        Signature: 424C62BE5FB91FA6485D71F8A2FD0ED9E67219378C65F1316C96840BDC6075C231617E7BE2C0C96E75EE6DCDFB6708839DF1B7B45CDE71246F727583BEA90506
+        FAIL
 
-        self.assertTrue(checkEd25519Signature(binascii.a2b_hex(pubkey), binascii.a2b_hex(resp), randombytes))
+        """
 
     def test_get_host_info(self):
         # Get host info

@@ -1,5 +1,6 @@
 use data_encoding::BASE32;
 use serde::{Deserialize, Serialize};
+use crate::{CMD_ATTEST, CMD_CREATE, CMD_DELETE, CMD_DISPLAY_CODE, CMD_INIT_VAULT, CMD_SET_TIME, CMD_UNLOCK_VAULT, MSG_ATTESTATION_RESPONSE, MSG_STATUS_MSG, MSG_SYSINFO};
 
 const MIN_TOTP_SECRET_LEN: usize = 16;
 const MAX_TOTP_SECRET_LEN: usize = 64;
@@ -11,8 +12,10 @@ const MIN_TIMESTAMP: u64 = 1728590640;
 pub const NONCE_CHALLENGE_LEN: usize = 64;
 
 pub const SUCCESS_MSG: &str = "Success!";
-pub trait Validate {
+
+pub trait Message {
     fn validate(&self) -> bool;
+    fn message_type_byte(&self) -> u8;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -48,7 +51,7 @@ pub struct DisplayCodeMsg {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AuthenticateChallengeMsg {
-    pub nonce_challenge: Vec<u8>,
+    pub nonce_challenge: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -61,10 +64,32 @@ pub struct SystemInfoMsg {
     pub vault_unlocked: bool,
     pub public_key: String,
 }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StatusMsg {
+    pub error: bool,
+    pub message: String,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AttestationResponseMsg {
+    pub message: String,
+}
+impl Message for AttestationResponseMsg {
+    fn validate(&self) -> bool {true}
+    fn message_type_byte(&self) -> u8 {MSG_ATTESTATION_RESPONSE}
+}
+impl Message for SystemInfoMsg {
+    fn validate(&self) -> bool {true}
+    fn message_type_byte(&self) -> u8 {MSG_SYSINFO}
+}
 
-impl Validate for AuthenticateChallengeMsg {
+impl Message for StatusMsg {
+    fn validate(&self) -> bool {true}
+    fn message_type_byte(&self) -> u8 {MSG_STATUS_MSG}
+}
+
+impl Message for AuthenticateChallengeMsg {
     fn validate(&self) -> bool {
-        if self.nonce_challenge.len() != NONCE_CHALLENGE_LEN {
+        if self.nonce_challenge.len() > 100 || self.nonce_challenge.len() < 63 {
             #[cfg(debug_assertions)]
             println!("Nonce size of {} is != {NONCE_CHALLENGE_LEN}", self.nonce_challenge.len());
 
@@ -72,9 +97,10 @@ impl Validate for AuthenticateChallengeMsg {
         }
         true
     }
+    fn message_type_byte(&self) -> u8 {CMD_ATTEST}
 }
 
-impl Validate for DeleteEntryMsg {
+impl Message for DeleteEntryMsg {
     fn validate(&self) -> bool {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
             #[cfg(debug_assertions)]
@@ -84,9 +110,10 @@ impl Validate for DeleteEntryMsg {
         }
         true
     }
+    fn message_type_byte(&self) -> u8 {CMD_DELETE}
 }
 
-impl Validate for SetTimeMsg {
+impl Message for SetTimeMsg {
     fn validate(&self) -> bool {
         // Check if the timestamp is something valid (later than 10/10/2024)
         if self.unix_timestamp < MIN_TIMESTAMP {
@@ -97,27 +124,30 @@ impl Validate for SetTimeMsg {
         }
         true
     }
+    fn message_type_byte(&self) -> u8 {CMD_SET_TIME}
 }
 
-impl Validate for UnlockMsg {
+impl Message for UnlockMsg {
     fn validate(&self) -> bool {
         if self.password.len() < MIN_PW_LEN || self.password.len() > MAX_PW_LEN {
             return false;
         }
         true
     }
+    fn message_type_byte(&self) -> u8 {CMD_UNLOCK_VAULT}
 }
 
-impl Validate for InitVaultMsg {
+impl Message for InitVaultMsg {
     fn validate(&self) -> bool {
         if self.password.len() < MIN_PW_LEN || self.password.len() > MAX_PW_LEN {
             return false;
         }
         true
     }
+    fn message_type_byte(&self) -> u8 {CMD_INIT_VAULT}
 }
 
-impl Validate for CreateEntryMsg {
+impl Message for CreateEntryMsg {
     fn validate(&self) -> bool {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
             #[cfg(debug_assertions)]
@@ -144,10 +174,11 @@ impl Validate for CreateEntryMsg {
         }
         true
     }
+    fn message_type_byte(&self) -> u8 {CMD_CREATE}
 }
 
 
-impl Validate for DisplayCodeMsg {
+impl Message for DisplayCodeMsg {
     fn validate(&self) -> bool {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
             #[cfg(debug_assertions)]
@@ -157,4 +188,5 @@ impl Validate for DisplayCodeMsg {
         }
         true
     }
+    fn message_type_byte(&self) -> u8 {CMD_DISPLAY_CODE}
 }

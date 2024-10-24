@@ -1,7 +1,7 @@
 use aes_gcm::aead::{Aead, KeyInit, OsRng}; // Traits for key generation and random number generation
 use aes_gcm::{Aes256Gcm, Error, Key, Nonce};
 use rand::RngCore;
-use ed25519_dalek::{Signature, Signer, SigningKey, PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH};
+use ed25519_dalek::{Signature, Signer, SigningKey, SECRET_KEY_LENGTH};
 use crate::{nvs_read_blob, NONCE_CHALLENGE_LEN, NVS_KEY_ED25519};
 
 pub const AES_IV_LEN: usize = 12;
