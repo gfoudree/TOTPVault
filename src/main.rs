@@ -10,10 +10,10 @@ use esp_idf_sys::{nvs_get_stats, nvs_stats_t, ESP_OK};
 use pbkdf2;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use sha2::Sha256;
-use std::fmt::Write;
 use rmp_serde::Serializer;
 use serde::Serialize;
+use sha2::Sha256;
+use std::fmt::Write;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
@@ -38,7 +38,8 @@ const CMD_LOCK_VAULT: u8 = 0x1E;
 pub const MSG_STATUS_MSG: u8 = 0x01;
 pub const MSG_SYSINFO: u8 = 0x20;
 pub const MSG_ATTESTATION_RESPONSE: u8 = 0x21;
-
+pub const MSG_LIST_CREDS: u8 = 0x22;
+pub const MSG_TOTP_CODE: u8 = 0x23;
 const SALT_LEN: usize = 32; // 256 bits
 const KDF_ROUNDS: u32 = 100;
 
@@ -87,7 +88,7 @@ impl System {
             Option::<AnyIOPin>::None,
             &config,
         )
-        .expect("Error initializing UART Driver");
+            .expect("Error initializing UART Driver");
 
         uart
     }
@@ -103,9 +104,9 @@ impl System {
     }
 
     fn init_vault(&mut self, cmd_buf: &[u8; 512], _read_bytes: usize) -> Result<(), String> {
-        let initmsg = rmp_serde::from_slice::<InitVaultMsg>(&cmd_buf[1..]).map_err(|_| format!("Invalid InitVault message"))?;
+        let init_msg = rmp_serde::from_slice::<InitVaultMsg>(&cmd_buf[1..]).map_err(|_| format!("Invalid InitVault message"))?;
 
-        if !initmsg.validate() {
+        if !init_msg.validate() {
             return Err("Invalid InitVault message".to_string());
         }
 
@@ -114,12 +115,12 @@ impl System {
         nvs_write_blob("salt", &salt)?;
 
         // Derive the encryption key
-        let enc_key = Self::derive_encryption_key(initmsg.password.as_str(), &salt);
+        let enc_key = Self::derive_encryption_key(init_msg.password.as_str(), &salt);
         #[cfg(debug_assertions)]
         {
             println!("Init Salt: {:02X?}", salt);
             println!("Init Key: {:02X?}", enc_key);
-            println!("Pw: {:02X?}", initmsg.password);
+            println!("Pw: {:02X?}", init_msg.password);
         }
 
         // Wipe all entries
@@ -145,10 +146,7 @@ impl System {
         Ok(())
     }
 
-    fn derive_encryption_key(
-        password: &str,
-        salt: &[u8; SALT_LEN],
-    ) -> [u8; 32] {
+    fn derive_encryption_key(password: &str, salt: &[u8; SALT_LEN]) -> [u8; 32] {
         let key = pbkdf2::pbkdf2_hmac_array::<Sha256, 32>(
             password.as_bytes(),
             salt,
@@ -164,8 +162,8 @@ impl System {
         }
 
         match rmp_serde::from_slice::<DisplayCodeMsg>(&cmd_buf[1..]) {
-            Ok(displaycodemsg) => {
-                let index = Credential::credential_name_to_index(displaycodemsg.domain_name, &self.key)?;
+            Ok(display_code_msg) => {
+                let index = Credential::credential_name_to_index(display_code_msg.domain_name, &self.key)?;
                 let mut cred = Credential::get_credential(index, &self.key)?;
 
                 let totp_code = Credential::gen_totp(&cred)?;
@@ -175,12 +173,12 @@ impl System {
                 }
                 cred.totp_secret_decrypted.zeroize();
                 Ok(totp_code)
-            },
+            }
             Err(e) => {
                 #[cfg(debug_assertions)]
-            {
-                println!("Unlock message decoding error: {:?}", e);
-            }
+                {
+                    println!("Unlock message decoding error: {:?}", e);
+                }
                 Err("Invalid display code message".to_string())
             }
         }
@@ -225,17 +223,17 @@ impl System {
     }
 
     fn set_time(&mut self, cmd_buf: &[u8; 512], _read_bytes: usize) -> Result<(), String> {
-        let timemsg = rmp_serde::from_slice::<SetTimeMsg>(&cmd_buf[1..]).map_err(|_| format!("Invalid SetTime message"))?;
+        let time_msg = rmp_serde::from_slice::<SetTimeMsg>(&cmd_buf[1..]).map_err(|_| format!("Invalid SetTime message"))?;
 
-        if !timemsg.validate() {
+        if !time_msg.validate() {
             return Err("Invalid SetTime message".to_string());
         }
 
-        let new_unix_timestamp = timemsg.unix_timestamp;
+        let new_unix_timestamp = time_msg.unix_timestamp;
 
         if self.time_set {
             // Time has been set already, check if the new time is more than the max allowed delta
-            let mut current_tv = sys::timeval{ tv_sec: 0, tv_usec: 0};
+            let mut current_tv = sys::timeval { tv_sec: 0, tv_usec: 0 };
             unsafe {
                 sys::gettimeofday(&mut current_tv, core::ptr::null_mut());
             }
@@ -269,14 +267,14 @@ impl System {
     }
 
     fn create_entry(&mut self, cmd_buf: &[u8; 512], _read_bytes: usize) -> Result<(), String> {
-        let createmsg = rmp_serde::from_slice::<CreateEntryMsg>(&cmd_buf[1..]).map_err(|_| "Invalid CreateEntry message".to_string())?;
+        let create_msg = rmp_serde::from_slice::<CreateEntryMsg>(&cmd_buf[1..]).map_err(|_| "Invalid CreateEntry message".to_string())?;
 
         // Check message fields to see if they're correct
-        if createmsg.validate() {
+        if create_msg.validate() {
             let mut cred = Credential::default();
             cred.in_use = true;
-            cred.domain_name = createmsg.domain_name;
-            cred.totp_secret_decrypted = Some(createmsg.totp_secret);
+            cred.domain_name = create_msg.domain_name;
+            cred.totp_secret_decrypted = Some(create_msg.totp_secret);
 
             // Save the credential
             Credential::save_credential(&mut cred, &self.key)?;
@@ -291,7 +289,7 @@ impl System {
         format_nvs_partition()?;
         // Setup ED25519 Key
         match nvs_read_blob(NVS_KEY_ED25519) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(_) => {
                 Self::setup_ed25519()?;
             }
@@ -309,7 +307,7 @@ pub fn send_message<T: Message + Serialize>(uart: &uart::UartDriver, msg: &T) {
 }
 
 pub fn send_response_message(uart: &mut uart::UartDriver, msg: &str, error: bool) {
-    let status_msg = StatusMsg{ error, message: msg.to_string() };
+    let status_msg = StatusMsg { error, message: msg.to_string() };
     send_message(uart, &status_msg);
 }
 
@@ -343,64 +341,68 @@ fn main() {
             let command = buf[0];
             match command {
                 CMD_SET_TIME => match sys.set_time(&buf, num) {
-                    Ok(_) => writeln!(uart, "{}", SUCCESS_MSG).unwrap(),
-                    Err(e) => writeln!(uart, "{}", e).unwrap(),
+                    Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
+                    Err(e) => send_response_message(&mut uart, e.as_str(), true),
                 },
                 CMD_CREATE => {
                     if sys.vault_unlocked == false {
-                        writeln!(uart, "Vault locked!").unwrap();
+                        send_response_message(&mut uart, "Vault Locked!", true)
                     } else {
                         match sys.create_entry(&buf, num) {
-                            Ok(_) => writeln!(uart, "{}", SUCCESS_MSG).unwrap(),
-                            Err(e) => writeln!(uart, "{}", e).unwrap(),
+                            Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
+                            Err(e) => send_response_message(&mut uart, e.as_str(), true),
                         }
                     }
                 }
                 CMD_LIST => {
                     if sys.vault_unlocked == false {
-                        writeln!(uart, "Vault locked!").unwrap();
+                        send_response_message(&mut uart, "Vault Locked!", true)
                     } else {
                         match Credential::list_credentials(&sys.key) {
-                            Ok(creds) => writeln!(uart, "Creds: {:?}", creds).unwrap(),
-                            Err(e) => writeln!(uart, "{}", e).unwrap(),
+                            Ok(creds) => {
+                                // Transform them into CredentialListMsg
+                                let cred_list_msg = CredentialListMsg { credentials: creds.iter().map(|cred| CredentialInfo { domain_name: cred.domain_name.clone(), slot_id: cred.slot_id }).collect() };
+                                send_message(&mut uart, &cred_list_msg);
+                            }
+                            Err(e) => send_response_message(&mut uart, e.as_str(), true),
                         }
                     }
                 }
                 CMD_DELETE => {
                     if sys.vault_unlocked == false {
-                        writeln!(uart, "Vault locked!").unwrap();
+                        send_response_message(&mut uart, "Vault Locked!", true)
                     } else {
-                        if let Ok(delmsg) = rmp_serde::from_slice::<DeleteEntryMsg>(&buf[1..]) {
-                            if delmsg.validate() {
-                                match Credential::delete_credential_by_name(delmsg.domain_name, &sys.key) {
-                                    Ok(_) => writeln!(uart, "{}", SUCCESS_MSG).unwrap(),
-                                    Err(e) => writeln!(uart, "Error deleting credential: {}", e).unwrap(),
+                        if let Ok(del_msg) = rmp_serde::from_slice::<DeleteEntryMsg>(&buf[1..]) {
+                            if del_msg.validate() {
+                                match Credential::delete_credential_by_name(del_msg.domain_name, &sys.key) {
+                                    Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
+                                    Err(e) => send_response_message(&mut uart, format!("Error deleting credential: {}", e).as_str(), true),
                                 }
                             } else {
-                                writeln!(uart, "Invalid DeleteMsg message").unwrap();
+                                send_response_message(&mut uart, "Invalid DeleteMsg message", true);
                             }
                         } else {
-                            writeln!(uart, "Invalid DeleteMsg message").unwrap();
+                            send_response_message(&mut uart, "Invalid DeleteMsg message", true);
                         }
                     }
                 }
                 CMD_DISPLAY_CODE => {
                     if sys.vault_unlocked == false {
-                        writeln!(uart, "Vault locked!").unwrap();
+                        send_response_message(&mut uart, "Vault Locked!", true)
                     } else {
                         match sys.display_code(&buf) {
-                            Ok(mut totp_code) => {
-                                writeln!(uart, "TOTP Code: {}", totp_code).unwrap();
-                                totp_code.zeroize();
-                            },
-                            Err(e) => writeln!(uart, "Error generating TOTP code: {}", e).unwrap(),
+                            Ok(totp_code) => {
+                                let totp_code_msg = TOTPCodeMsg { totp_code: totp_code };
+                                send_message(&mut uart, &totp_code_msg);
+                            }
+                            Err(e) => send_response_message(&mut uart, format!("Error generating TOTP code: {}", e).as_str(), true),
                         }
                     }
                 }
                 CMD_DEV_INFO => {
                     if let Ok(pubkey) = get_pubkey() {
                         // TODO: add calculation of used/free slots
-                        let infomsg = SystemInfoMsg{
+                        let info_msg = SystemInfoMsg {
                             total_slots: MAX_CREDENTIALS,
                             used_slots: 0,
                             free_slots: 0,
@@ -410,23 +412,21 @@ fn main() {
                             public_key: pubkey,
                         };
 
-                        send_message(&uart, &infomsg);
-                    }
-                    else {
+                        send_message(&uart, &info_msg);
+                    } else {
                         send_response_message(&mut uart, "Critical error: ED25519 public key missing!", true);
-                        //writeln!(uart, "Critical error: ED25519 public key missing!").unwrap();
                     }
                 }
                 CMD_UNLOCK_VAULT => {
                     // TODO: use subtle crypto library when needed!
                     match sys.unlock_vault(&buf, num) {
-                        Ok(_) => writeln!(uart, "{}", SUCCESS_MSG).unwrap(),
-                        Err(_) => writeln!(uart, "Wrong password").unwrap(),
+                        Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
+                        Err(_) => send_response_message(&mut uart, "Incorrect Password", true),
                     };
                 }
                 CMD_INIT_VAULT => match sys.init_vault(&buf, num) {
-                    Ok(_) => writeln!(uart, "{}", SUCCESS_MSG).unwrap(),
-                    Err(e) => writeln!(uart, "{}", e).unwrap(),
+                    Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
+                    Err(e) => send_response_message(&mut uart, e.as_str(), true),
                 },
                 CMD_ATTEST => {
                     // Generate pub/priv keypair during vault init or first boot (?) if first boot, we have to make sure we NEVER wipe it! Maybe store in eFuse
@@ -439,27 +439,26 @@ fn main() {
                         if challenge_msg.validate() {
                             let challenge_bytes: [u8; NONCE_CHALLENGE_LEN] = base64::decode(challenge_msg.nonce_challenge.clone()).unwrap().try_into().unwrap();
                             match sign_challenge(&challenge_bytes) {
-                                Ok(sig) =>  {
-
+                                Ok(sig) => {
                                     #[cfg(debug_assertions)] {
                                         println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_pubkey().unwrap(), challenge_msg.nonce_challenge, sig);
                                     }
-                                    let attestation_response_msg = AttestationResponseMsg{message: sig.to_string()};
+                                    let attestation_response_msg = AttestationResponseMsg { message: sig.to_string() };
                                     send_message(&uart, &attestation_response_msg);
                                 }
-                                Err(e) => writeln!(uart, "Error signing challenge! {}", e).unwrap(),
+                                Err(e) => send_response_message(&mut uart, format!("Error signing challenge! {}", e).as_str(), true),
                             }
                         } else {
-                            writeln!(uart, "Invalid AuthenticateChallengeMsg message").unwrap();
+                            send_response_message(&mut uart, "Invalid AuthenticateChallengeMsg message", true);
                         }
                     } else {
-                        writeln!(uart, "Invalid AuthenticateChallengeMsg message").unwrap();
+                        send_response_message(&mut uart, "Invalid AuthenticateChallengeMsg message", true);
                     }
                 }
                 CMD_LOCK_VAULT => {
                     sys.vault_unlocked = false;
                     sys.key.zeroize();
-                    writeln!(uart, "{}", SUCCESS_MSG).unwrap();
+                    send_response_message(&mut uart, SUCCESS_MSG, false);
                 }
                 _ => {}
             }

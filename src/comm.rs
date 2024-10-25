@@ -1,6 +1,6 @@
+use crate::{CMD_ATTEST, CMD_CREATE, CMD_DELETE, CMD_DISPLAY_CODE, CMD_INIT_VAULT, CMD_SET_TIME, CMD_UNLOCK_VAULT, MSG_ATTESTATION_RESPONSE, MSG_LIST_CREDS, MSG_STATUS_MSG, MSG_SYSINFO, MSG_TOTP_CODE};
 use data_encoding::BASE32;
 use serde::{Deserialize, Serialize};
-use crate::{CMD_ATTEST, CMD_CREATE, CMD_DELETE, CMD_DISPLAY_CODE, CMD_INIT_VAULT, CMD_SET_TIME, CMD_UNLOCK_VAULT, MSG_ATTESTATION_RESPONSE, MSG_STATUS_MSG, MSG_SYSINFO};
 
 const MIN_TOTP_SECRET_LEN: usize = 16;
 const MAX_TOTP_SECRET_LEN: usize = 64;
@@ -55,6 +55,20 @@ pub struct AuthenticateChallengeMsg {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct CredentialInfo {
+    pub domain_name: String,
+    pub slot_id: u8,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CredentialListMsg {
+    pub credentials: Vec<CredentialInfo>,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TOTPCodeMsg {
+    pub totp_code: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SystemInfoMsg {
     pub total_slots: u8,
     pub used_slots: u8,
@@ -73,18 +87,27 @@ pub struct StatusMsg {
 pub struct AttestationResponseMsg {
     pub message: String,
 }
+
+impl Message for TOTPCodeMsg {
+    fn validate(&self) -> bool { true }
+    fn message_type_byte(&self) -> u8 { MSG_TOTP_CODE }
+}
 impl Message for AttestationResponseMsg {
-    fn validate(&self) -> bool {true}
-    fn message_type_byte(&self) -> u8 {MSG_ATTESTATION_RESPONSE}
+    fn validate(&self) -> bool { true }
+    fn message_type_byte(&self) -> u8 { MSG_ATTESTATION_RESPONSE }
 }
 impl Message for SystemInfoMsg {
-    fn validate(&self) -> bool {true}
-    fn message_type_byte(&self) -> u8 {MSG_SYSINFO}
+    fn validate(&self) -> bool { true }
+    fn message_type_byte(&self) -> u8 { MSG_SYSINFO }
 }
 
+impl Message for CredentialListMsg {
+    fn validate(&self) -> bool { true }
+    fn message_type_byte(&self) -> u8 { MSG_LIST_CREDS }
+}
 impl Message for StatusMsg {
-    fn validate(&self) -> bool {true}
-    fn message_type_byte(&self) -> u8 {MSG_STATUS_MSG}
+    fn validate(&self) -> bool { true }
+    fn message_type_byte(&self) -> u8 { MSG_STATUS_MSG }
 }
 
 impl Message for AuthenticateChallengeMsg {
@@ -97,7 +120,7 @@ impl Message for AuthenticateChallengeMsg {
         }
         true
     }
-    fn message_type_byte(&self) -> u8 {CMD_ATTEST}
+    fn message_type_byte(&self) -> u8 { CMD_ATTEST }
 }
 
 impl Message for DeleteEntryMsg {
@@ -110,7 +133,7 @@ impl Message for DeleteEntryMsg {
         }
         true
     }
-    fn message_type_byte(&self) -> u8 {CMD_DELETE}
+    fn message_type_byte(&self) -> u8 { CMD_DELETE }
 }
 
 impl Message for SetTimeMsg {
@@ -124,7 +147,7 @@ impl Message for SetTimeMsg {
         }
         true
     }
-    fn message_type_byte(&self) -> u8 {CMD_SET_TIME}
+    fn message_type_byte(&self) -> u8 { CMD_SET_TIME }
 }
 
 impl Message for UnlockMsg {
@@ -134,7 +157,7 @@ impl Message for UnlockMsg {
         }
         true
     }
-    fn message_type_byte(&self) -> u8 {CMD_UNLOCK_VAULT}
+    fn message_type_byte(&self) -> u8 { CMD_UNLOCK_VAULT }
 }
 
 impl Message for InitVaultMsg {
@@ -144,7 +167,7 @@ impl Message for InitVaultMsg {
         }
         true
     }
-    fn message_type_byte(&self) -> u8 {CMD_INIT_VAULT}
+    fn message_type_byte(&self) -> u8 { CMD_INIT_VAULT }
 }
 
 impl Message for CreateEntryMsg {
@@ -174,7 +197,7 @@ impl Message for CreateEntryMsg {
         }
         true
     }
-    fn message_type_byte(&self) -> u8 {CMD_CREATE}
+    fn message_type_byte(&self) -> u8 { CMD_CREATE }
 }
 
 
@@ -188,5 +211,5 @@ impl Message for DisplayCodeMsg {
         }
         true
     }
-    fn message_type_byte(&self) -> u8 {CMD_DISPLAY_CODE}
+    fn message_type_byte(&self) -> u8 { CMD_DISPLAY_CODE }
 }
