@@ -298,7 +298,7 @@ impl System {
     }
 }
 
-pub fn send_message<T: Message + Serialize>(uart: &uart::UartDriver, msg: &T) {
+pub fn send_message<T: Message + Serialize>(uart: &mut uart::UartDriver, msg: &T) {
     let mut buf = Vec::new();
     buf.push(msg.message_type_byte()); // Add the message type byte to the beginning
 
@@ -412,7 +412,7 @@ fn main() {
                             public_key: pubkey,
                         };
 
-                        send_message(&uart, &info_msg);
+                        send_message(&mut uart, &info_msg);
                     } else {
                         send_response_message(&mut uart, "Critical error: ED25519 public key missing!", true);
                     }
@@ -444,7 +444,7 @@ fn main() {
                                         println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_pubkey().unwrap(), challenge_msg.nonce_challenge, sig);
                                     }
                                     let attestation_response_msg = AttestationResponseMsg { message: sig.to_string() };
-                                    send_message(&uart, &attestation_response_msg);
+                                    send_message(&mut uart, &attestation_response_msg);
                                 }
                                 Err(e) => send_response_message(&mut uart, format!("Error signing challenge! {}", e).as_str(), true),
                             }

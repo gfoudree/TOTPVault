@@ -2,8 +2,8 @@ use crate::{CMD_ATTEST, CMD_CREATE, CMD_DELETE, CMD_DISPLAY_CODE, CMD_INIT_VAULT
 use data_encoding::BASE32;
 use serde::{Deserialize, Serialize};
 
-const MIN_TOTP_SECRET_LEN: usize = 16;
-const MAX_TOTP_SECRET_LEN: usize = 64;
+pub(crate) const MIN_TOTP_SECRET_LEN: usize = 16;
+pub(crate) const MAX_TOTP_SECRET_LEN: usize = 64;
 const MAX_DOMAIN_LEN: usize = 64;
 const MIN_DOMAIN_LEN: usize = 2;
 const MIN_PW_LEN: usize = 12;

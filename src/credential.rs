@@ -1,7 +1,4 @@
-use crate::{
-    crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN},
-    nvs_read_blob, nvs_write_blob,
-};
+use crate::{comm, crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN}, nvs_read_blob, nvs_write_blob};
 
 use serde::{Deserialize, Serialize};
 use totp_rs;
@@ -38,12 +35,15 @@ impl Default for Credential {
 
 impl Credential {
     pub fn gen_totp(cred: &Credential) -> Result<String, String> {
-        // TODO: check if it is valid TOTP secret string
         if cred.in_use == false || cred.totp_secret_decrypted.is_none() {
             return Err("Invalid credential!".to_string());
         }
 
         let totp_encoded_secret = cred.totp_secret_decrypted.clone().unwrap();
+        if totp_encoded_secret.len() < comm::MIN_TOTP_SECRET_LEN || totp_encoded_secret.len() > comm::MAX_TOTP_SECRET_LEN {
+            return Err("Invalid credential!".to_string());
+        }
+
         let totp = totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30,
                                       totp_rs::Secret::Encoded(totp_encoded_secret).to_bytes().unwrap()).map_err(|e| format!("Error initializing TOTP: {}", e))?;
 

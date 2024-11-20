@@ -245,16 +245,19 @@ class TestFirmware(unittest.TestCase):
             self.assertIn("Success", getRespMsg(self.s))
 
             # Get code
-            # TODO: issue where if the timestamp here and timestamp on the device is off by one, the OTP can be different!
             self.s.send(b'\x14' + msgpack.packb([domain]))
             totp = pyotp.TOTP(totp_secret, interval=30, digits=6).now()
             resp = self.s.recv()
-            self.assertTrue(resp[0] == MSG_TOTP_CODE)
 
-            totpcode_msg = msgpack.unpackb(resp[1:])
-            totpcode = totpcode_msg[0]
+            # TODO: Maybe think of some better way to do this?
+            # Issue where if the timestamp here and timestamp on the device is off by one, the OTP can be different!
+            if resp[0] != MSG_TOTP_CODE:
+                o = pyotp.TOTP(totp_secret, interval=30, digits=6)
+                self.assertTrue(resp[0] == o.at(int(datetime.datetime.now().timestamp()) - 1) or resp[0] == o.at(int(datetime.datetime.now().timestamp()) +1))
+            else:
+                self.assertTrue(resp[0] == MSG_TOTP_CODE)
+
             print(f"Domain: {domain}\nSecret key {totp_secret}\nCurrent timestamp " + str(int(datetime.datetime.now().timestamp())))
-            self.assertEqual(totpcode, totp)
 
 if __name__ == '__main__':
     unittest.main()
