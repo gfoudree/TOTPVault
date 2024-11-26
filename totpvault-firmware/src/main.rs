@@ -16,30 +16,17 @@ use sha2::Sha256;
 use std::fmt::Write;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
+use totpvault_lib;
 
 use comm::*;
 use storage::*;
+use totpvault_lib::*;
 
 mod comm;
 mod credential;
 mod crypto;
 mod storage;
 
-const CMD_SET_TIME: u8 = 0x10;
-const CMD_CREATE: u8 = 0x11;
-const CMD_LIST: u8 = 0x12;
-const CMD_DELETE: u8 = 0x13;
-const CMD_DISPLAY_CODE: u8 = 0x14;
-const CMD_DEV_INFO: u8 = 0x15;
-const CMD_UNLOCK_VAULT: u8 = 0x1A;
-const CMD_INIT_VAULT: u8 = 0x1B;
-const CMD_ATTEST: u8 = 0x1C;
-const CMD_LOCK_VAULT: u8 = 0x1E;
-pub const MSG_STATUS_MSG: u8 = 0x01;
-pub const MSG_SYSINFO: u8 = 0x20;
-pub const MSG_ATTESTATION_RESPONSE: u8 = 0x21;
-pub const MSG_LIST_CREDS: u8 = 0x22;
-pub const MSG_TOTP_CODE: u8 = 0x23;
 const SALT_LEN: usize = 32; // 256 bits
 const KDF_ROUNDS: u32 = 100;
 

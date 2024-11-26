@@ -1,0 +1,8 @@
+progress, trough {
+	min-height: 15px;
+}
+
+.totp_label {
+    font-family: monospace;
+    font-size: 14px;
+}

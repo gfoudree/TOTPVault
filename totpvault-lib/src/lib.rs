@@ -1,9 +1,24 @@
-use crate::{CMD_ATTEST, CMD_CREATE, CMD_DELETE, CMD_DISPLAY_CODE, CMD_INIT_VAULT, CMD_SET_TIME, CMD_UNLOCK_VAULT, MSG_ATTESTATION_RESPONSE, MSG_LIST_CREDS, MSG_STATUS_MSG, MSG_SYSINFO, MSG_TOTP_CODE};
 use data_encoding::BASE32;
 use serde::{Deserialize, Serialize};
 
-pub(crate) const MIN_TOTP_SECRET_LEN: usize = 16;
-pub(crate) const MAX_TOTP_SECRET_LEN: usize = 64;
+pub const CMD_SET_TIME: u8 = 0x10;
+pub const CMD_CREATE: u8 = 0x11;
+pub const CMD_LIST: u8 = 0x12;
+pub const CMD_DELETE: u8 = 0x13;
+pub const CMD_DISPLAY_CODE: u8 = 0x14;
+pub const CMD_DEV_INFO: u8 = 0x15;
+pub const CMD_UNLOCK_VAULT: u8 = 0x1A;
+pub const CMD_INIT_VAULT: u8 = 0x1B;
+pub const CMD_ATTEST: u8 = 0x1C;
+pub const CMD_LOCK_VAULT: u8 = 0x1E;
+pub const MSG_STATUS_MSG: u8 = 0x01;
+pub const MSG_SYSINFO: u8 = 0x20;
+pub const MSG_ATTESTATION_RESPONSE: u8 = 0x21;
+pub const MSG_LIST_CREDS: u8 = 0x22;
+pub const MSG_TOTP_CODE: u8 = 0x23;
+
+pub const MIN_TOTP_SECRET_LEN: usize = 16;
+pub const MAX_TOTP_SECRET_LEN: usize = 64;
 const MAX_DOMAIN_LEN: usize = 64;
 const MIN_DOMAIN_LEN: usize = 2;
 const MIN_PW_LEN: usize = 12;

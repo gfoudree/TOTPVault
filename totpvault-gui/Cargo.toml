@@ -1,0 +1,14 @@
+[package]
+name = "totpvault-gui"
+version = "0.1.0"
+edition = "2021"
+authors = ["Grant Foudree <gfoudree@protonmail.com>"]
+
+[dependencies]
+relm4 = "0.9.1"
+relm4-components = "0.9.1"
+udev = "0.9.1"
+totpvault-lib = { path = "../totpvault-lib" }
+
+[build-dependencies]
+glib-build-tools = "0.17.10"

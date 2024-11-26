@@ -1,8 +1,9 @@
-use crate::{comm, crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN}, nvs_read_blob, nvs_write_blob};
+use crate::{ crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN}, nvs_read_blob, nvs_write_blob};
 
 use serde::{Deserialize, Serialize};
 use totp_rs;
 use zeroize::Zeroize;
+use totpvault_lib;
 
 pub const MAX_CREDENTIALS: u8 = 128;
 
@@ -40,7 +41,7 @@ impl Credential {
         }
 
         let totp_encoded_secret = cred.totp_secret_decrypted.clone().unwrap();
-        if totp_encoded_secret.len() < comm::MIN_TOTP_SECRET_LEN || totp_encoded_secret.len() > comm::MAX_TOTP_SECRET_LEN {
+        if totp_encoded_secret.len() < totpvault_lib::MIN_TOTP_SECRET_LEN || totp_encoded_secret.len() > totpvault_lib::MAX_TOTP_SECRET_LEN {
             return Err("Invalid credential!".to_string());
         }
 
@@ -75,6 +76,7 @@ impl Credential {
 
         Ok(used)
     }
+    
     pub fn get_credential(
         index: u8,
         encryption_key: &[u8; AES_KEY_LEN],
