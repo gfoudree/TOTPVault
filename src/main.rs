@@ -296,6 +296,26 @@ impl System {
         }
         Ok(())
     }
+
+    fn get_system_info(&self) -> Result<SystemInfoMsg, String> {
+        let pubkey = get_pubkey().map_err(|e| format!("Unable to get pubkey. {}", e))?;
+        let mut info_msg = SystemInfoMsg {
+            total_slots: MAX_CREDENTIALS,
+            used_slots: 0,
+            free_slots: 0,
+            current_timestamp: Utc::now().timestamp() as u64,
+            version_str: "2FA Cube Version 0.1".to_string(),
+            vault_unlocked: self.vault_unlocked,
+            public_key: pubkey,
+        };
+
+        if self.vault_unlocked {
+            let num_used_creds = Credential::get_num_used_credentials(&self.key).map_err(|e| format!("Unable to enumerate stored credentials. {}", e))?;
+            info_msg.used_slots = num_used_creds;
+            info_msg.free_slots = MAX_CREDENTIALS - num_used_creds;
+        }
+        Ok(info_msg)
+    }
 }
 
 pub fn send_message<T: Message + Serialize>(uart: &mut uart::UartDriver, msg: &T) {
@@ -400,21 +420,9 @@ fn main() {
                     }
                 }
                 CMD_DEV_INFO => {
-                    if let Ok(pubkey) = get_pubkey() {
-                        // TODO: add calculation of used/free slots
-                        let info_msg = SystemInfoMsg {
-                            total_slots: MAX_CREDENTIALS,
-                            used_slots: 0,
-                            free_slots: 0,
-                            current_timestamp: Utc::now().timestamp() as u64,
-                            version_str: "2FA Cube Version 0.1".to_string(),
-                            vault_unlocked: sys.vault_unlocked,
-                            public_key: pubkey,
-                        };
-
-                        send_message(&mut uart, &info_msg);
-                    } else {
-                        send_response_message(&mut uart, "Critical error: ED25519 public key missing!", true);
+                    match sys.get_system_info() {
+                        Ok(sys_info) => send_message(&mut uart, &sys_info),
+                        Err(e) => send_response_message(&mut uart, e.as_str(), true),
                     }
                 }
                 CMD_UNLOCK_VAULT => {

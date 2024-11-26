@@ -109,7 +109,7 @@ class TestFirmware(unittest.TestCase):
         self.assertTrue(dev_info_bytes[0] == SYSINFO_MSG) # Make sure it's a MSG_SYSINFO response
         # Unpack response
         dev_info = msgpack.unpackb(dev_info_bytes[1:])
-        self.assertTrue(dev_info[0] >= 0)
+        self.assertTrue(dev_info[0] == 128)
         self.assertTrue(dev_info[1] >= 0)
         self.assertTrue(dev_info[2] >= 0)
         self.assertTrue(dev_info[3] >= 0)

@@ -63,6 +63,18 @@ impl Credential {
         Ok(creds)
     }
 
+    pub fn get_num_used_credentials(encryption_key: &[u8; AES_KEY_LEN]) -> Result<u8, String> {
+        let mut used = 0;
+        for i in 0..MAX_CREDENTIALS {
+            let cred = Self::get_credential(i, encryption_key)
+                .map_err(|e| format!("Error listing credentials: {}", e))?;
+            if cred.in_use {
+                used += 1;
+            }
+        }
+
+        Ok(used)
+    }
     pub fn get_credential(
         index: u8,
         encryption_key: &[u8; AES_KEY_LEN],
