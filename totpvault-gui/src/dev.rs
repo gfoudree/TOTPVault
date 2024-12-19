@@ -22,11 +22,11 @@ impl totpvault_dev {
                 }
             }
             if vid_match && pid_match {
-                println!("Found device: {:?}", device.devnode().unwrap());
+                return Ok(device.devnode().unwrap().to_str().unwrap().to_string());
             }
 
         }
-        Ok("".to_string())
+        Err("No TOTPVault devices found!".to_string())
     }
 
 }

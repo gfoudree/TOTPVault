@@ -4,6 +4,9 @@ use totpvault_lib::*;
 use gtk::prelude::{BoxExt, ButtonExt, GtkWindowExt, OrientableExt};
 use relm4::{gtk::{self, gdk::Display, gio, prelude::{Cast, FrameExt, WidgetExt}, CssProvider, StyleContext}, ComponentParts, ComponentSender, RelmApp, RelmWidgetExt, SimpleComponent};
 use relm4::gtk::prelude::GridExt;
+use log::{info, warn, error};
+use env_logger::Builder;
+use std::env;
 
 struct AppModel {
     counter: u8,
@@ -15,7 +18,13 @@ enum AppMsg {
     Decrement,
 }
 struct AppWidgets {
-    //list_box: gtk::ListBox,
+    status_label: gtk::Label,
+    path_label: gtk::Label,
+    slot_usage_label: gtk::Label,
+    time_sync_label: gtk::Label,
+    hw_version_label: gtk::Label,
+    sw_version_label: gtk::Label,
+    public_key_label: gtk::Label,
     notebook: gtk::Notebook,
 }
 
@@ -26,43 +35,7 @@ impl SimpleComponent for AppModel {
     type Output = ();
     type Root = gtk::Window;
     type Widgets = AppWidgets;
-    /*
-    view! {
-        #[name(main_window)]
-        gtk::Window {
-            set_title: Some("Simple app"),
-            set_default_width: 1200,
-            set_default_height: 800,
 
-            
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_spacing: 5,
-                set_margin_all: 5,
-                set_halign: gtk::Align::Center,
-                set_valign: gtk::Align::Center,
-                
-
-                gtk::ScrolledWindow {
-                    set_halign: gtk::Align::Center,
-                    set_size_request: (500, 500),
-
-                    #[name(totp_list)]
-                    gtk::ListBox {
-                        set_selection_mode: gtk::SelectionMode::None,
-                    },
-                },
-
-                #[name(countdown_progressbar)]
-                gtk::ProgressBar {
-                    set_fraction: 100.0,
-                }
-            },
-
-            
-        }
-    }
-    */
     fn init_root() -> Self::Root {
         gtk::Window::builder().title("TOTP").default_height(700).default_width(1100).build()
     }
@@ -93,11 +66,23 @@ impl SimpleComponent for AppModel {
         // Create info side panel
         let frame = gtk::Frame::builder().margin_top(5).margin_bottom(5).margin_end(5).build();
 
-        let info_grid = gtk::Grid::builder().margin_bottom(20).margin_start(10).valign(gtk::Align::End).vexpand(true).build();
+        let info_grid = gtk::Grid::builder().margin_bottom(20).margin_start(15).valign(gtk::Align::End).vexpand(true).build();
+        
+        let status_label = gtk::Label::builder().label("Status:").halign(gtk::Align::Start).margin_bottom(10).build();
+        let path_label = gtk::Label::builder().label("Path:").halign(gtk::Align::Start).margin_bottom(10).build();
+        let slot_usage_label = gtk::Label::builder().label("Slot Usage:").halign(gtk::Align::Start).margin_bottom(10).build();
+        let time_sync_label = gtk::Label::builder().label("Time Sync:").halign(gtk::Align::Start).margin_bottom(10).build();
+        let hw_version_label = gtk::Label::builder().label("HW Version:").halign(gtk::Align::Start).margin_bottom(10).build();
+        let sw_version_label = gtk::Label::builder().label("SW Version:").halign(gtk::Align::Start).margin_bottom(10).build();
+        let public_key_label = gtk::Label::builder().label("Public Key:").halign(gtk::Align::Start).margin_bottom(10).build();
 
-        for (i, lbl) in ["Status:", "Path:", "Slot Usage:", "Time Sync:", "HW Version:", "SW Version:", "Public Key:"].iter().enumerate() {
-            info_grid.attach(&gtk::Label::builder().label(lbl.to_string()).halign(gtk::Align::Start).margin_bottom(10).build(), 0, i as i32, 1, 1);
-        }
+        info_grid.attach(&status_label, 0, 0, 1, 1);
+        info_grid.attach(&path_label, 0, 1, 1, 1);
+        info_grid.attach(&slot_usage_label, 0, 2, 1, 1);
+        info_grid.attach(&time_sync_label, 0, 3, 1, 1);
+        info_grid.attach(&hw_version_label, 0, 4, 1, 1);
+        info_grid.attach(&sw_version_label, 0, 5, 1, 1);
+        info_grid.attach(&public_key_label, 0, 6, 1, 1);
 
         info_box.append(&info_grid);
 
@@ -142,7 +127,16 @@ impl SimpleComponent for AppModel {
 
         root.set_child(Some(&top_layout));
 
-        let widgets = AppWidgets{notebook};
+        let widgets = AppWidgets {
+            status_label,
+            path_label,
+            slot_usage_label,
+            time_sync_label,
+            hw_version_label,
+            sw_version_label,
+            public_key_label,
+            notebook,
+        };
 
         ComponentParts { model, widgets }
     }
@@ -160,9 +154,22 @@ impl SimpleComponent for AppModel {
 }
 
 fn main() {
+    Builder::new()
+    .parse_filters("info")  // Set to 'info' to show info and above levels
+    .init();
+
     gio::resources_register_include!("icons.gresource").unwrap();
     let app = RelmApp::new("relm4.test.simple");
+
     let t = dev::totpvault_dev::find_device();
-    
+    match t {
+        Ok(dev) => {
+            info!("Using device {}", dev);
+            
+        }
+        Err(e) => {
+            warn!("{}", e);
+        }
+    }
     app.run::<AppModel>(0);
 }
