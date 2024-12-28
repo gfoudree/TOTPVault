@@ -10,12 +10,12 @@ use std::env;
 
 struct AppModel {
     counter: u8,
+    device_online: bool,
 }
 
 #[derive(Debug)]
 enum AppMsg {
-    Increment,
-    Decrement,
+    DeviceEvent
 }
 struct AppWidgets {
     status_label: gtk::Label,
@@ -46,7 +46,7 @@ impl SimpleComponent for AppModel {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let model = AppModel { counter };
+        let mut model = AppModel{counter, device_online: false};
 
         let provider = CssProvider::new();
         provider.load_from_data(String::from_utf8(include_bytes!("style.css").to_vec()).unwrap().as_str());
@@ -65,9 +65,7 @@ impl SimpleComponent for AppModel {
         
         // Create info side panel
         let frame = gtk::Frame::builder().margin_top(5).margin_bottom(5).margin_end(5).build();
-
         let info_grid = gtk::Grid::builder().margin_bottom(20).margin_start(15).valign(gtk::Align::End).vexpand(true).build();
-        
         let status_label = gtk::Label::builder().label("Status:").halign(gtk::Align::Start).margin_bottom(10).build();
         let path_label = gtk::Label::builder().label("Path:").halign(gtk::Align::Start).margin_bottom(10).build();
         let slot_usage_label = gtk::Label::builder().label("Slot Usage:").halign(gtk::Align::Start).margin_bottom(10).build();
@@ -127,6 +125,21 @@ impl SimpleComponent for AppModel {
 
         root.set_child(Some(&top_layout));
 
+        
+        // Display if any devices are plugged in
+        match  dev::TotpvaultDev::find_device() {
+            Ok(dev) => {
+                info!("Using device {}", dev);
+                path_label.set_text(dev.as_str());
+                status_label.set_text("Status:\t Device inserted");
+                model.device_online = true;
+            }
+            Err(e) => {
+                status_label.set_text("Status:\t No device inserted. Please restart");
+                warn!("{}", e);
+            }
+        }
+        
         let widgets = AppWidgets {
             status_label,
             path_label,
@@ -143,13 +156,14 @@ impl SimpleComponent for AppModel {
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
-            AppMsg::Increment => {
-                self.counter = self.counter.wrapping_add(1);
-            }
-            AppMsg::Decrement => {
-                self.counter = self.counter.wrapping_sub(1);
+            AppMsg::DeviceEvent => {
+
             }
         }
+    }
+
+    fn update_view(&self, widgets: &mut Self::Widgets, _sender: ComponentSender<Self>) {
+        
     }
 }
 
@@ -161,15 +175,5 @@ fn main() {
     gio::resources_register_include!("icons.gresource").unwrap();
     let app = RelmApp::new("relm4.test.simple");
 
-    let t = dev::totpvault_dev::find_device();
-    match t {
-        Ok(dev) => {
-            info!("Using device {}", dev);
-            
-        }
-        Err(e) => {
-            warn!("{}", e);
-        }
-    }
     app.run::<AppModel>(0);
 }

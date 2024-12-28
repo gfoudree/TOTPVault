@@ -2,11 +2,11 @@ const VID: &str = "1a86";
 const PID: &str = "55d3";
 use udev;
 
-pub struct totpvault_dev {
+pub struct TotpvaultDev {
 
 }
 
-impl totpvault_dev {
+impl TotpvaultDev {
     pub fn find_device() -> Result<String, String> {
         let mut enumerator = udev::Enumerator::new().unwrap();
         enumerator.match_subsystem("tty").unwrap();
@@ -24,9 +24,7 @@ impl totpvault_dev {
             if vid_match && pid_match {
                 return Ok(device.devnode().unwrap().to_str().unwrap().to_string());
             }
-
         }
         Err("No TOTPVault devices found!".to_string())
     }
-
 }
