@@ -127,11 +127,15 @@ impl SimpleComponent for AppModel {
 
         
         // Display if any devices are plugged in
-        match  dev::TotpvaultDev::find_device() {
+        match dev::TotpvaultDev::find_device() {
             Ok(dev) => {
                 info!("Using device {}", dev);
-                path_label.set_text(dev.as_str());
-                status_label.set_text("Status:\t Device inserted");
+
+                // Check if device is locked or unlocked
+                let status_msg = dev::TotpvaultDev::get_device_status(dev.as_str());
+                println!("Status: {:?}", status_msg);
+                path_label.set_text(format!("Device:\t\t\t {}", dev).as_str());
+                status_label.set_text("Status:\t\t\t Device Inserted");
                 model.device_online = true;
             }
             Err(e) => {

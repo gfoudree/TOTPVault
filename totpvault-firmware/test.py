@@ -71,7 +71,7 @@ def getCreds(s):
 
 class TestFirmware(unittest.TestCase):
     def setUp(self):
-        self.s = serialtube(port='/dev/ttyACM0')
+        self.s = serialtube(port='/dev/ttyACM1')
         self.s.timeout = 5
         if self.s.can_recv(1):
             self.s.recv()
