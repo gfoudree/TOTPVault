@@ -7,6 +7,7 @@ use std::time::Duration;
 use serde::{Serialize, Deserialize};
 use totpvault_lib::*;
 use std::io::Cursor;
+use log::debug;
 
 pub struct TotpvaultDev {
 
@@ -29,30 +30,36 @@ impl TotpvaultDev {
             }
             if vid_match && pid_match {
                 return Ok(device.devnode().unwrap().to_str().unwrap().to_string());
+            } else {
+                debug!("Skipping device: {:?}. VID != {} || PID != {}", device, VID, PID);
             }
         }
         Err("No TOTPVault devices found!".to_string())
     }
 
-    pub fn get_device_status(dev_path: &str) -> Result<SystemInfoMsg, String> {
-        // TODO: clean this monster mess up...
-        let msg = vec![CMD_DEV_INFO];
+    pub fn send_message(dev_path: &str, msg: u8) -> Result<Vec<u8>, String> {
+        let msg = vec![msg];
 
         let mut port = serialport::new(dev_path, 115_200)
             .timeout(Duration::from_millis(1000))
             .open().map_err(|e| format!("Unable to open serial port {}: {}", dev_path, e))?;
 
         port.write(&msg).map_err(|e| format!("Error writing to serial port {}: {}", dev_path, e))?;
-        let mut resp = [0; 128];
 
+        let mut resp = [0; 256];
         port.read(&mut resp).map_err(|e| format!("Error reading from serial port {}: {}", dev_path, e))?;
 
+        Ok(resp.to_vec())
+    }
+
+    pub fn get_device_status(dev_path: &str) -> Result<SystemInfoMsg, String> {
+        let resp = Self::send_message(dev_path, CMD_DEV_INFO)?;
         // Check that we got a valid SYSINFO message
         if resp[0] != MSG_SYSINFO {
             return Err("Invalid response message from device!".to_string());
         }
-        let mut de = Cursor::new(resp[1..].to_vec());
-        let msg: SystemInfoMsg = Deserialize::deserialize(&mut Deserializer::new(& mut de)).map_err(|e| e.to_string())?;
+        let mut cursor_buf = Cursor::new(resp[1..].to_vec());
+        let msg: SystemInfoMsg = Deserialize::deserialize(&mut Deserializer::new(& mut cursor_buf)).map_err(|e| e.to_string())?;
         Ok(msg)
     }
 }

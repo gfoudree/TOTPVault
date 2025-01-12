@@ -1,21 +1,24 @@
 mod dev;
-use totpvault_lib::*;
 
-use gtk::prelude::{BoxExt, ButtonExt, GtkWindowExt, OrientableExt};
-use relm4::{gtk::{self, gdk::Display, gio, prelude::{Cast, FrameExt, WidgetExt}, CssProvider, StyleContext}, ComponentParts, ComponentSender, RelmApp, RelmWidgetExt, SimpleComponent};
+use gtk::prelude::{BoxExt, GtkWindowExt};
+use relm4::{gtk::{self, gdk::Display, gio, prelude::{FrameExt}, CssProvider, StyleContext}, ComponentParts, ComponentSender, RelmApp, SimpleComponent};
 use relm4::gtk::prelude::GridExt;
-use log::{info, warn, error};
+use log::{info, warn, error, debug};
 use env_logger::Builder;
-use std::env;
+use std::{env, thread};
+use std::time::Duration;
+use chrono::Utc;
+
+const TOTP_TICK_SECONDS: f64 = 30.0;
 
 struct AppModel {
-    counter: u8,
+    counter: f64,
     device_online: bool,
 }
 
 #[derive(Debug)]
 enum AppMsg {
-    DeviceEvent
+    TimerTick,
 }
 struct AppWidgets {
     status_label: gtk::Label,
@@ -26,11 +29,16 @@ struct AppWidgets {
     sw_version_label: gtk::Label,
     public_key_label: gtk::Label,
     notebook: gtk::Notebook,
+    time_progressbar: gtk::ProgressBar,
+}
+
+fn get_remaining_totp_ticks() -> f64 {
+    let ts = Utc::now();
+    return (30 - (ts.timestamp() % 30)) as f64;
 }
 
 impl SimpleComponent for AppModel {
-    type Init = u8;
-
+    type Init = f64;
     type Input = AppMsg;
     type Output = ();
     type Root = gtk::Window;
@@ -91,7 +99,10 @@ impl SimpleComponent for AppModel {
         let main_page = gtk::Box::builder().spacing(5).halign(gtk::Align::Fill).valign(gtk::Align::Fill).orientation(gtk::Orientation::Vertical).build();
         let totp_scrolled_window = gtk::ScrolledWindow::builder().halign(gtk::Align::Fill).hexpand(true).vexpand(true).build();
         let totp_list_box = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).build();
-        let time_progressbar = gtk::ProgressBar::builder().text("30s").show_text(true).build();
+
+        let remaining_totp_ticks = get_remaining_totp_ticks();
+        model.counter = remaining_totp_ticks*(1.0/TOTP_TICK_SECONDS);
+        let time_progressbar = gtk::ProgressBar::builder().text(format!("{}s", remaining_totp_ticks as i32)).show_text(true).fraction(model.counter).build();
         totp_scrolled_window.set_child(Some(&totp_list_box));
         main_page.append(&totp_scrolled_window);
         main_page.append(&time_progressbar);
@@ -132,11 +143,28 @@ impl SimpleComponent for AppModel {
                 info!("Using device {}", dev);
 
                 // Check if device is locked or unlocked
-                let status_msg = dev::TotpvaultDev::get_device_status(dev.as_str());
-                println!("Status: {:?}", status_msg);
-                path_label.set_text(format!("Device:\t\t\t {}", dev).as_str());
-                status_label.set_text("Status:\t\t\t Device Inserted");
-                model.device_online = true;
+                match dev::TotpvaultDev::get_device_status(dev.as_str()) {
+                    Ok(status_msg) => {
+                        path_label.set_text(format!("Device:\t\t\t {}", dev).as_str());
+                        model.device_online = true;
+                        // TODO: fix HW and SW version in API
+                        public_key_label.set_text(format!("Public Key:\t\t\t {}", status_msg.public_key).as_str());
+                        slot_usage_label.set_text(format!("Slot Usage:\t\t\t{}/{}", status_msg.used_slots, status_msg.total_slots).as_str());
+
+                        debug!("Device Status: {:?}", status_msg);
+
+                        if status_msg.vault_unlocked {
+                            status_label.set_text("Status:\t\t\t Online, UNLOCKED");
+                        }
+                        else {
+                            status_label.set_text("Status:\t\t\t Online, LOCKED");
+                        }
+                    }
+                    Err(e) => {
+                        status_label.set_text("Status:\t No device inserted. Please restart");
+                        error!("Error getting status from device: {}", e);
+                    }
+                }
             }
             Err(e) => {
                 status_label.set_text("Status:\t No device inserted. Please restart");
@@ -153,21 +181,35 @@ impl SimpleComponent for AppModel {
             sw_version_label,
             public_key_label,
             notebook,
+            time_progressbar
         };
 
+        thread::spawn(move || {
+            loop {
+                thread::sleep(Duration::from_millis(1000));
+                sender.input(AppMsg::TimerTick);
+            }
+        });
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
-            AppMsg::DeviceEvent => {
-
+            AppMsg::TimerTick => {
+                let time_value = 1.0/TOTP_TICK_SECONDS;
+                if self.counter - time_value < 0.0 {
+                    self.counter = 1.0;
+                }
+                else {
+                    self.counter -= time_value;
+                }
             }
         }
     }
 
     fn update_view(&self, widgets: &mut Self::Widgets, _sender: ComponentSender<Self>) {
-        
+        widgets.time_progressbar.set_fraction(self.counter);
+        widgets.time_progressbar.set_text(Some(format!("{}s", (self.counter * TOTP_TICK_SECONDS) as i32).as_str()));
     }
 }
 
@@ -179,5 +221,5 @@ fn main() {
     gio::resources_register_include!("icons.gresource").unwrap();
     let app = RelmApp::new("relm4.test.simple");
 
-    app.run::<AppModel>(0);
+    app.run::<AppModel>(1.0);
 }
