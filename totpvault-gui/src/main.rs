@@ -72,7 +72,7 @@ impl SimpleComponent for AppModel {
         top_layout.append(&notebook_box);
         
         // Create info side panel
-        let frame = gtk::Frame::builder().margin_top(5).margin_bottom(5).margin_end(5).build();
+        let info_panel_frame = gtk::Frame::builder().margin_top(5).margin_bottom(5).margin_end(5).build();
         let info_grid = gtk::Grid::builder().margin_bottom(20).margin_start(15).valign(gtk::Align::End).vexpand(true).build();
         let status_label = gtk::Label::builder().label("Status:").halign(gtk::Align::Start).margin_bottom(10).build();
         let path_label = gtk::Label::builder().label("Path:").halign(gtk::Align::Start).margin_bottom(10).build();
@@ -92,8 +92,8 @@ impl SimpleComponent for AppModel {
 
         info_box.append(&info_grid);
 
-        frame.set_child(Some(&info_box));
-        top_layout.append(&frame);
+        info_panel_frame.set_child(Some(&info_box));
+        top_layout.append(&info_panel_frame);
 
         // Main tab page
         let main_page = gtk::Box::builder().spacing(5).halign(gtk::Align::Fill).valign(gtk::Align::Fill).orientation(gtk::Orientation::Vertical).build();
@@ -121,18 +121,34 @@ impl SimpleComponent for AppModel {
 
         // Create Configure page
         let create_totp_entry_page = gtk::Box::builder().spacing(5).halign(gtk::Align::Center).valign(gtk::Align::Center).orientation(gtk::Orientation::Vertical).build();
+        let configure_grid = gtk::Grid::builder().margin_bottom(20).margin_start(15).valign(gtk::Align::End).vexpand(true).column_spacing(20).row_spacing(10).build();
+
+        let add_entry_input_domain_name = gtk::Entry::builder().has_tooltip(true).tooltip_text("Domain name of website to store code for").build();
+        let add_entry_input_totp_secret = gtk::Entry::builder().has_tooltip(true).tooltip_text("TOTP secret, base64 encoded").build();
+        let add_entry_submit_button = gtk::Button::builder().label("Add").build();
         let sync_time_button = gtk::Button::builder().label("Sync Time").build();
-        let attest_challenge_button = gtk::Button::builder().label("Attest Key").build();
-        let delete_selection_combobox = gtk::ComboBoxText::new();
+        let attest_challenge_button = gtk::Button::builder().label("Attest Key").has_tooltip(true).tooltip_text("Send challenge to key and authenticate it").build();
+        let delete_selection_combobox = gtk::ComboBoxText::builder().has_tooltip(true).tooltip_text("Existing entry to delete").build();
+        let delete_entry_button = gtk::Button::builder().label("Delete").build();
         delete_selection_combobox.append_text("google.com");
+
+        configure_grid.attach(&gtk::Label::new(Some("Website")),0, 0, 1, 1);
+        configure_grid.attach(&add_entry_input_domain_name,1, 0, 1, 1);
+        configure_grid.attach(&gtk::Label::new(Some("TOTP Secret")),0, 1, 1, 1);
+        configure_grid.attach(&add_entry_input_totp_secret,1, 1, 1, 1);
+        create_totp_entry_page.append(&configure_grid);
+
+        create_totp_entry_page.append(&add_entry_submit_button);
+        create_totp_entry_page.append(&gtk::Separator::builder().orientation(gtk::Orientation::Horizontal).margin_bottom(30).margin_top(30).build());
         create_totp_entry_page.append(&delete_selection_combobox);
-    
+        create_totp_entry_page.append(&delete_entry_button);
+        create_totp_entry_page.append(&gtk::Separator::builder().orientation(gtk::Orientation::Horizontal).margin_bottom(30).margin_top(30).build());
         create_totp_entry_page.append(&sync_time_button);
         create_totp_entry_page.append(&attest_challenge_button);
 
         // Build notebook with all the tabs
         notebook.append_page(&main_page, Some(&gtk::Label::new(Some("TOTP Codes"))));
-        notebook.append_page(&create_totp_entry_page, Some(&gtk::Label::new(Some("Configure"))));
+        notebook.append_page(&create_totp_entry_page, Some(&gtk::Label::new(Some("Configure Key"))));
 
         root.set_child(Some(&top_layout));
 
