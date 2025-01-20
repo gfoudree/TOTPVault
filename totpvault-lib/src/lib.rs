@@ -91,7 +91,7 @@ pub struct SystemInfoMsg {
     pub current_timestamp: u64,
     pub version_str: String,
     pub vault_unlocked: bool,
-    pub public_key: String,
+    pub public_key: String, // Base64 encoded
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusMsg {

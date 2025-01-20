@@ -1,6 +1,7 @@
 use aes_gcm::aead::{Aead, KeyInit, OsRng}; // Traits for key generation and random number generation
 use aes_gcm::{Aes256Gcm, Error, Key, Nonce};
 use rand::RngCore;
+use base64::prelude::*;
 use ed25519_dalek::{Signature, Signer, SigningKey, SECRET_KEY_LENGTH};
 use crate::{nvs_read_blob, NONCE_CHALLENGE_LEN, NVS_KEY_ED25519};
 
@@ -73,7 +74,6 @@ pub fn get_pubkey() -> Result<String, String> {
     let pubkey = pkey.verifying_key();
     
     // Convert it into a string
-    let encoded = base64::encode(pubkey.as_bytes());
-    //let pubkey_hex = pubkey.as_bytes().iter().map(|e| format!("{:02X}", e)).collect::<Vec<String>>().join("");
+    let encoded = BASE64_STANDARD.encode(pubkey.as_bytes());
     Ok(encoded)
 }

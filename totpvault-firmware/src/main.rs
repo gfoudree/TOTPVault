@@ -285,7 +285,7 @@ impl System {
     }
 
     fn get_system_info(&self) -> Result<SystemInfoMsg, String> {
-        let pubkey = get_pubkey().map_err(|e| format!("Unable to get pubkey. {}", e))?;
+        let pubkey = get_pubkey().map_err(|e| format!("Unable to get device public key. {}", e))?;
         let mut info_msg = SystemInfoMsg {
             total_slots: MAX_CREDENTIALS,
             used_slots: 0,

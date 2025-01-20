@@ -1,13 +1,15 @@
-const VID: &str = "1a86";
-const PID: &str = "55d3";
-use udev;
+const VID: u16 = 0x1a86;
+const PID: u16 = 0x55d3;
+
+use std::env;
 use rmp_serde::{Deserializer, Serializer};
 use serialport;
 use std::time::Duration;
 use serde::{Serialize, Deserialize};
 use totpvault_lib::*;
 use std::io::Cursor;
-use log::debug;
+use log::{debug, info};
+use serialport::SerialPortType;
 
 pub struct TotpvaultDev {
 
@@ -15,26 +17,37 @@ pub struct TotpvaultDev {
 
 impl TotpvaultDev {
     pub fn find_device() -> Result<String, String> {
-        let mut enumerator = udev::Enumerator::new().unwrap();
-        enumerator.match_subsystem("tty").unwrap();
-        for device in enumerator.scan_devices().unwrap() {
-            let mut vid_match = false;
-            let mut pid_match = false;
+        match serialport::available_ports() {
+            Ok(ports) => {
+                for port in ports {
+                    match port.port_type {
+                        SerialPortType::UsbPort(info) => {
+                            info!("Found USB device {:02x} {:02x}", info.vid, info.pid);
 
-            for property in device.properties() {
-                if property.name().to_str().unwrap().contains("ID_USB_VENDOR_ID") && property.value().to_str().unwrap().contains(VID) {
-                    vid_match = true;
-                } else if property.name().to_str().unwrap().contains("ID_USB_MODEL_ID") && property.value().to_str().unwrap().contains(PID) {
-                    pid_match = true;
+                            if info.vid == VID && info.pid == PID {
+                                // Handle OS-specific details
+                                match env::consts::OS {
+                                    "windows" => {}
+                                    "linux" => {}
+                                    "macos" => {
+                                        if port.port_name.contains("tty") {
+                                            info!("Using USB device {:02x}:{:02x} @ {}", info.vid, info.pid, port.port_name);
+                                            return Ok(port.port_name);
+                                        } else {
+                                            debug!("Skipping non-tty port: {}", port.port_name);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
-            if vid_match && pid_match {
-                return Ok(device.devnode().unwrap().to_str().unwrap().to_string());
-            } else {
-                debug!("Skipping device: {:?}. VID != {} || PID != {}", device, VID, PID);
-            }
+            Err(e) => return Err(e.to_string())
         }
-        Err("No TOTPVault devices found!".to_string())
+        Err("No TOTP devices found.".to_string())
     }
 
     pub fn send_message(dev_path: &str, msg: u8) -> Result<Vec<u8>, String> {
