@@ -162,7 +162,7 @@ impl SimpleComponent for AppModel {
                         path_label.set_text(format!("Device:\t\t\t {}", dev).as_str());
                         model.device_online = true;
                         // TODO: fix HW and SW version in API
-                        public_key_label.set_text(format!("Public Key:\t\t\t {}", status_msg.public_key.trim_end_matches('\0')).as_str()); // Necessary to trim extra null bytes for some reason
+                        public_key_label.set_text(format!("Public Key:\t\t\t {}", status_msg.public_key).as_str()); // Necessary to trim extra null bytes for some reason
                         slot_usage_label.set_text(format!("Slot Usage:\t\t\t{}/{}", status_msg.used_slots, status_msg.total_slots).as_str());
 
                         info!("Device publickey: {}", status_msg.public_key);

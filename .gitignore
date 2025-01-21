@@ -40,3 +40,4 @@ fp-info-cache
 .vscode
 .idea
 target
+.gdb_history

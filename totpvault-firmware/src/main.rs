@@ -1,28 +1,24 @@
+use std::any::Any;
 use chrono::Utc;
 use credential::{Credential, MAX_CREDENTIALS};
-use crypto::{get_pubkey, sign_challenge};
-use ed25519_dalek::{SigningKey, SECRET_KEY_LENGTH};
+use crypto::{get_ed25519_public_key_nvs, sign_challenge, gen_ed25519_keypair, gen_salt};
+use ed25519_dalek::{SECRET_KEY_LENGTH};
 use esp_idf_svc::{
     hal::{gpio::AnyIOPin, prelude::Peripherals, reset::restart, uart, units::Hertz},
     sys,
 };
 use esp_idf_sys::{nvs_get_stats, nvs_stats_t, ESP_OK};
 use pbkdf2;
-use rand::rngs::OsRng;
-use rand::RngCore;
 use rmp_serde::Serializer;
 use serde::Serialize;
 use sha2::Sha256;
-use std::fmt::Write;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 use totpvault_lib;
 
-use comm::*;
 use storage::*;
 use totpvault_lib::*;
 
-mod comm;
 mod credential;
 mod crypto;
 mod storage;
@@ -51,14 +47,6 @@ impl System {
         }
     }
 
-    fn gen_salt() -> [u8; SALT_LEN] {
-        let mut buffer = [0u8; SALT_LEN]; // Create a buffer of SALT_LEN
-        let mut rng = OsRng; // Create a new instance of OsRng
-
-        rng.fill_bytes(&mut buffer); // Verified via radare to call esp_fill_random()
-        buffer
-    }
-
     fn setup_uart<'a>(&mut self) -> uart::UartDriver<'a> {
         let peripherals = Peripherals::take().unwrap();
 
@@ -81,10 +69,7 @@ impl System {
     }
 
     fn setup_ed25519() -> Result<(), String> {
-        let mut rng = OsRng;
-        let key: SigningKey = SigningKey::generate(&mut rng);
-
-        let mut secret_bytes: [u8; SECRET_KEY_LENGTH] = key.to_bytes();
+        let mut secret_bytes: [u8; SECRET_KEY_LENGTH] = gen_ed25519_keypair().to_bytes();
         nvs_write_blob(NVS_KEY_ED25519, &secret_bytes)?;
         secret_bytes.zeroize();
         Ok(())
@@ -98,7 +83,7 @@ impl System {
         }
 
         // Generate encryption salt and store it in the database
-        let salt = Self::gen_salt();
+        let salt = gen_salt();
         nvs_write_blob("salt", &salt)?;
 
         // Derive the encryption key
@@ -285,7 +270,7 @@ impl System {
     }
 
     fn get_system_info(&self) -> Result<SystemInfoMsg, String> {
-        let pubkey = get_pubkey().map_err(|e| format!("Unable to get device public key. {}", e))?;
+        let pubkey = get_ed25519_public_key_nvs().map_err(|e| format!("Unable to get device public key. {}", e))?;
         let mut info_msg = SystemInfoMsg {
             total_slots: MAX_CREDENTIALS,
             used_slots: 0,
@@ -316,6 +301,9 @@ pub fn send_message<T: Message + Serialize>(uart: &mut uart::UartDriver, msg: &T
 pub fn send_response_message(uart: &mut uart::UartDriver, msg: &str, error: bool) {
     let status_msg = StatusMsg { error, message: msg.to_string() };
     send_message(uart, &status_msg);
+
+    #[cfg(debug_assertions)]
+    println!("Send response message: {}", &status_msg.message);
 }
 
 fn main() {
@@ -436,7 +424,7 @@ fn main() {
                             match sign_challenge(&challenge_bytes) {
                                 Ok(sig) => {
                                     #[cfg(debug_assertions)] {
-                                        println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_pubkey().unwrap(), challenge_msg.nonce_challenge, sig);
+                                        println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_ed25519_public_key_nvs().unwrap(), challenge_msg.nonce_challenge, sig);
                                     }
                                     let attestation_response_msg = AttestationResponseMsg { message: sig.to_string() };
                                     send_message(&mut uart, &attestation_response_msg);

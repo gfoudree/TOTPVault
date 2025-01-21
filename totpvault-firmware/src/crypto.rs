@@ -3,7 +3,7 @@ use aes_gcm::{Aes256Gcm, Error, Key, Nonce};
 use rand::RngCore;
 use base64::prelude::*;
 use ed25519_dalek::{Signature, Signer, SigningKey, SECRET_KEY_LENGTH};
-use crate::{nvs_read_blob, NONCE_CHALLENGE_LEN, NVS_KEY_ED25519};
+use crate::{nvs_read_blob, NONCE_CHALLENGE_LEN, NVS_KEY_ED25519, SALT_LEN};
 
 pub const AES_IV_LEN: usize = 12;
 pub const AES_KEY_LEN: usize = 256 / 8;
@@ -54,7 +54,7 @@ pub fn decrypt_block(
     cipher.decrypt(nonce, cipher_text)
 }
 
-fn get_ed25519_privkey() -> Result<SigningKey, String> {
+fn get_ed25519_private_key_nvs() -> Result<SigningKey, String> {
     let private_key_bytes = nvs_read_blob(NVS_KEY_ED25519)?;
     let r: [u8; SECRET_KEY_LENGTH] = private_key_bytes.try_into().map_err(|_|format!("Unable to decode stored private key into ED25519 private key"))?;
 
@@ -63,17 +63,37 @@ fn get_ed25519_privkey() -> Result<SigningKey, String> {
 }
 
 pub fn sign_challenge(challenge: &[u8; NONCE_CHALLENGE_LEN]) -> Result<Signature, String> {
-    let pkey = get_ed25519_privkey()?;
+    let pkey = get_ed25519_private_key_nvs()?;
     let signature = pkey.sign(challenge);
 
     Ok(signature)
 }
 
-pub fn get_pubkey() -> Result<String, String> {
-    let pkey = get_ed25519_privkey()?;
+pub fn get_ed25519_public_key_nvs() -> Result<String, String> {
+    let pkey = get_ed25519_private_key_nvs()?;
     let pubkey = pkey.verifying_key();
     
     // Convert it into a string
     let encoded = BASE64_STANDARD.encode(pubkey.as_bytes());
+    #[cfg(debug_assertions)]
+    {
+        println!("Public key (raw): {:?}", pubkey.as_bytes());
+        println!("Public key (encoded): {:02X?}", encoded);
+    }
     Ok(encoded)
+}
+
+pub fn gen_salt() -> [u8; SALT_LEN] {
+    let mut buffer = [0u8; SALT_LEN]; // Create a buffer of SALT_LEN
+    let mut rng = OsRng; // Create a new instance of OsRng
+
+    rng.fill_bytes(&mut buffer); // Verified via radare to call esp_fill_random()
+    buffer
+}
+
+pub fn gen_ed25519_keypair() -> SigningKey {
+    let mut rng = OsRng;
+    let key: SigningKey = SigningKey::generate(&mut rng);
+
+    key
 }
