@@ -7,9 +7,14 @@ use log::{info, warn, error, debug};
 use env_logger::Builder;
 use std::{env, thread};
 use std::time::Duration;
+use base64::prelude::BASE64_STANDARD;
 use chrono::Utc;
+use base64::prelude::*;
+use sha2::{Digest, Sha256};
+use hex;
 
 const TOTP_TICK_SECONDS: f64 = 30.0;
+const ALLOWED_TIMESYNC_DELTA: i64 = 10;
 
 struct AppModel {
     counter: f64,
@@ -25,8 +30,7 @@ struct AppWidgets {
     path_label: gtk::Label,
     slot_usage_label: gtk::Label,
     time_sync_label: gtk::Label,
-    hw_version_label: gtk::Label,
-    sw_version_label: gtk::Label,
+    version_label: gtk::Label,
     public_key_label: gtk::Label,
     notebook: gtk::Notebook,
     time_progressbar: gtk::ProgressBar,
@@ -35,6 +39,34 @@ struct AppWidgets {
 fn get_remaining_totp_ticks() -> f64 {
     let ts = Utc::now();
     return (30 - (ts.timestamp() % 30)) as f64;
+}
+
+fn timesync_check(device_timestamp: u64) -> bool {
+    let current_time = Utc::now().timestamp() as u64;
+    let time_delta = ((current_time - device_timestamp) as i64).abs();
+
+    info!("System time (UTC): {}     Device time (UTC): {}     Delta: {}", current_time, device_timestamp, time_delta);
+    if time_delta > ALLOWED_TIMESYNC_DELTA {
+        return false
+    }
+    return true
+}
+
+fn public_key_to_hash(b64_publickey: &str) -> Result<String, String> {
+    let decoded = BASE64_STANDARD.decode(b64_publickey).map_err(|e| e.to_string())?;
+    let digest = Sha256::digest(decoded);
+
+    let hash_str = hex::encode(digest);
+    let mut formatted = String::from("");
+    for chunk in hash_str.chars().collect::<Vec<char>>().chunks(2) {
+        formatted += format!("{}{}:", chunk[0], chunk[1]).as_str();
+    }
+    if formatted.chars().last().unwrap() == ':' {
+        formatted = formatted[..formatted.len()-1].to_string();
+    }
+    formatted = formatted.to_uppercase();
+    return Ok(formatted);
+
 }
 
 impl SimpleComponent for AppModel {
@@ -78,17 +110,15 @@ impl SimpleComponent for AppModel {
         let path_label = gtk::Label::builder().label("Path:").halign(gtk::Align::Start).margin_bottom(10).build();
         let slot_usage_label = gtk::Label::builder().label("Slot Usage:").halign(gtk::Align::Start).margin_bottom(10).build();
         let time_sync_label = gtk::Label::builder().label("Time Sync:").halign(gtk::Align::Start).margin_bottom(10).build();
-        let hw_version_label = gtk::Label::builder().label("HW Version:").halign(gtk::Align::Start).margin_bottom(10).build();
-        let sw_version_label = gtk::Label::builder().label("SW Version:").halign(gtk::Align::Start).margin_bottom(10).build();
+        let version_label = gtk::Label::builder().label("Version:").halign(gtk::Align::Start).margin_bottom(10).build();
         let public_key_label = gtk::Label::builder().label("Public Key:").halign(gtk::Align::Start).margin_bottom(10).build();
 
         info_grid.attach(&status_label, 0, 0, 1, 1);
         info_grid.attach(&path_label, 0, 1, 1, 1);
         info_grid.attach(&slot_usage_label, 0, 2, 1, 1);
         info_grid.attach(&time_sync_label, 0, 3, 1, 1);
-        info_grid.attach(&hw_version_label, 0, 4, 1, 1);
-        info_grid.attach(&sw_version_label, 0, 5, 1, 1);
-        info_grid.attach(&public_key_label, 0, 6, 1, 1);
+        info_grid.attach(&version_label, 0, 4, 1, 1);
+        info_grid.attach(&public_key_label, 0, 5, 1, 1);
 
         info_box.append(&info_grid);
 
@@ -159,21 +189,26 @@ impl SimpleComponent for AppModel {
                 // Check if device is locked or unlocked
                 match dev::TotpvaultDev::get_device_status(dev.as_str()) {
                     Ok(status_msg) => {
-                        path_label.set_text(format!("Device:\t\t\t {}", dev).as_str());
                         model.device_online = true;
-                        // TODO: fix HW and SW version in API
-                        public_key_label.set_text(format!("Public Key:\t\t\t {}", status_msg.public_key).as_str()); // Necessary to trim extra null bytes for some reason
-                        slot_usage_label.set_text(format!("Slot Usage:\t\t\t{}/{}", status_msg.used_slots, status_msg.total_slots).as_str());
 
-                        info!("Device publickey: {}", status_msg.public_key);
+                        let hsh_truncated = &public_key_to_hash(status_msg.public_key.as_str()).unwrap()[0..23]; // Truncate hash, full hash to terminal out
+                        public_key_label.set_text(format!("Public Key:\t\t {}", hsh_truncated).as_str()); // Necessary to trim extra null bytes for some reason
+                        slot_usage_label.set_text(format!("Slot Usage:\t\t\t{} / {}", status_msg.used_slots, status_msg.total_slots).as_str());
+                        version_label.set_text(format!("Version:\t\t{}", status_msg.version_str).as_str());
+                        path_label.set_text(format!("Device:\t\t\t {}", dev).as_str());
+
+                        match timesync_check(status_msg.current_timestamp) {
+                            true => time_sync_label.set_text("Time Sync:\t\t True"),
+                            false => time_sync_label.set_text("Time Sync:\t\t False"),
+                        }
+                        match status_msg.vault_unlocked {
+                            true => status_label.set_text("Status:\t\t\t Online, UNLOCKED"),
+                            false => status_label.set_text("Status:\t\t\t Online, LOCKED"),
+                        }
+
+                        // Log out to terminal
+                        info!("Device fingerprint (SHA256): {}", public_key_to_hash(status_msg.public_key.as_str()).unwrap());
                         debug!("Device Status: {:?}", status_msg);
-
-                        if status_msg.vault_unlocked {
-                            status_label.set_text("Status:\t\t\t Online, UNLOCKED");
-                        }
-                        else {
-                            status_label.set_text("Status:\t\t\t Online, LOCKED");
-                        }
                     }
                     Err(e) => {
                         status_label.set_text("Status:\t No device inserted. Please restart");
@@ -192,8 +227,7 @@ impl SimpleComponent for AppModel {
             path_label,
             slot_usage_label,
             time_sync_label,
-            hw_version_label,
-            sw_version_label,
+            version_label,
             public_key_label,
             notebook,
             time_progressbar

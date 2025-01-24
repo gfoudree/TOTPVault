@@ -2,10 +2,10 @@ const VID: u16 = 0x1a86;
 const PID: u16 = 0x55d3;
 
 use std::env;
-use rmp_serde::{Deserializer, Serializer};
+use rmp_serde::{Deserializer};
 use serialport;
 use std::time::Duration;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize};
 use totpvault_lib::*;
 use std::io::Cursor;
 use log::{debug, error, info};
@@ -99,6 +99,8 @@ impl TotpvaultDev {
         }
         let mut cursor_buf = Cursor::new(resp[1..].to_vec());
         let msg: SystemInfoMsg = Deserialize::deserialize(&mut Deserializer::new(& mut cursor_buf)).map_err(|e| e.to_string())?;
+
         Ok(msg)
     }
+
 }
