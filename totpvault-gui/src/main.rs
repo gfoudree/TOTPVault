@@ -34,6 +34,7 @@ struct AppWidgets {
     public_key_label: gtk::Label,
     notebook: gtk::Notebook,
     time_progressbar: gtk::ProgressBar,
+    totp_list_box: gtk::ListBox,
 }
 
 fn get_remaining_totp_ticks() -> f64 {
@@ -69,6 +70,67 @@ fn public_key_to_hash(b64_publickey: &str) -> Result<String, String> {
 
 }
 
+fn populate_ui(dev: &str, widgets: &AppWidgets) -> bool{
+    // Check if device is locked or unlocked
+    match dev::TotpvaultDev::get_device_status(dev) {
+        Ok(status_msg) => {
+            // Populate metadata about device
+            let hsh_truncated = &public_key_to_hash(status_msg.public_key.as_str()).unwrap()[0..23]; // Truncate hash, full hash to terminal out
+            widgets.public_key_label.set_text(format!("Public Key:\t\t {}", hsh_truncated).as_str()); // Necessary to trim extra null bytes for some reason
+            widgets.slot_usage_label.set_text(format!("Slot Usage:\t\t\t{} / {}", status_msg.used_slots, status_msg.total_slots).as_str());
+            widgets.version_label.set_text(format!("Version:\t\t{}", status_msg.version_str).as_str());
+            widgets.path_label.set_text(format!("Device:\t\t\t {}", dev).as_str());
+
+            match timesync_check(status_msg.current_timestamp) {
+                true => widgets.time_sync_label.set_text("Time Sync:\t\t True"),
+                false => widgets.time_sync_label.set_text("Time Sync:\t\t False"),
+            }
+            match status_msg.vault_unlocked {
+                true => widgets.status_label.set_text("Status:\t\t\t Online, UNLOCKED"),
+                false => widgets.status_label.set_text("Status:\t\t\t Online, LOCKED"),
+            }
+
+            // Log out to terminal
+            info!("Device fingerprint (SHA256): {}", public_key_to_hash(status_msg.public_key.as_str()).unwrap());
+            debug!("Device Status: {:?}", status_msg);
+        }
+        Err(e) => {
+            widgets.status_label.set_text("Status:\t No device inserted. Please restart");
+            error!("Error getting status from device: {}", e);
+            return false;
+        }
+    }
+
+    // Get list of stored entries on device
+    match dev::TotpvaultDev::list_stored_credentials(dev) {
+        Ok(credentials) => {
+            for credential in credentials {
+                // Get TOTP code
+                match dev::TotpvaultDev::get_totp_code(&credential) {
+                    Ok(totp_code) => {
+                        // Populate elements
+                        let row = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).margin_start(20).margin_end(20).margin_top(8).margin_bottom(8).spacing(24).build();
+                        let domain_lbl = gtk::Label::builder().label(credential.domain_name).halign(gtk::Align::Start).valign(gtk::Align::Center).build();
+                        let totp_lbl = gtk::Label::builder().label(totp_code).halign(gtk::Align::Start).valign(gtk::Align::Center).build();
+                        let copy_img = gtk::Image::builder().resource("/com/example/ui/icons/clipboard-symbolic.svg").pixel_size(16).build();
+                        row.append(&domain_lbl);
+                        row.append(&totp_lbl);
+                        row.append(&copy_img);
+                        widgets.totp_list_box.append(&row);
+                    }
+                    Err(e) => {
+                        error!("Error getting TOTP code for credential {:?} : {}", credential, e);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!("Error listing credentials on device {}: {}", dev, e);
+            return false;
+        }
+    }
+    return true;
+}
 impl SimpleComponent for AppModel {
     type Init = f64;
     type Input = AppMsg;
@@ -92,7 +154,7 @@ impl SimpleComponent for AppModel {
         provider.load_from_data(String::from_utf8(include_bytes!("style.css").to_vec()).unwrap().as_str());
         let display = Display::default().unwrap();
         StyleContext::add_provider_for_display(&display, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
-        
+
 
         let notebook = gtk::Notebook::builder().hexpand(true).vexpand(true).build();
         let top_layout = gtk::Box::builder().spacing(0).orientation(gtk::Orientation::Horizontal).build();
@@ -102,7 +164,7 @@ impl SimpleComponent for AppModel {
         let info_box = gtk::Box::builder().spacing(5).orientation(gtk::Orientation::Vertical).width_request(300).vexpand(true).build();
 
         top_layout.append(&notebook_box);
-        
+
         // Create info side panel
         let info_panel_frame = gtk::Frame::builder().margin_top(5).margin_bottom(5).margin_end(5).build();
         let info_grid = gtk::Grid::builder().margin_bottom(20).margin_start(15).valign(gtk::Align::End).vexpand(true).build();
@@ -136,18 +198,6 @@ impl SimpleComponent for AppModel {
         totp_scrolled_window.set_child(Some(&totp_list_box));
         main_page.append(&totp_scrolled_window);
         main_page.append(&time_progressbar);
-        
-        // Populate elements
-        for _ in 0..25 {
-            let row = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).margin_start(20).margin_end(20).margin_top(8).margin_bottom(8).spacing(24).build();
-            let domain_lbl = gtk::Label::builder().label("Google.com").halign(gtk::Align::Start).valign(gtk::Align::Center).build();
-            let totp_lbl = gtk::Label::builder().label("042143").halign(gtk::Align::Start).valign(gtk::Align::Center).build();
-            let copy_img = gtk::Image::builder().resource("/com/example/ui/icons/clipboard-symbolic.svg").pixel_size(16).build();
-            row.append(&domain_lbl);
-            row.append(&totp_lbl);
-            row.append(&copy_img);
-            totp_list_box.append(&row);
-        }
 
         // Create Configure page
         let create_totp_entry_page = gtk::Box::builder().spacing(5).halign(gtk::Align::Center).valign(gtk::Align::Center).orientation(gtk::Orientation::Vertical).build();
@@ -182,46 +232,6 @@ impl SimpleComponent for AppModel {
 
         root.set_child(Some(&top_layout));
 
-        
-        // Display if any devices are plugged in
-        match dev::TotpvaultDev::find_device() {
-            Ok(dev) => {
-                // Check if device is locked or unlocked
-                match dev::TotpvaultDev::get_device_status(dev.as_str()) {
-                    Ok(status_msg) => {
-                        model.device_online = true;
-
-                        let hsh_truncated = &public_key_to_hash(status_msg.public_key.as_str()).unwrap()[0..23]; // Truncate hash, full hash to terminal out
-                        public_key_label.set_text(format!("Public Key:\t\t {}", hsh_truncated).as_str()); // Necessary to trim extra null bytes for some reason
-                        slot_usage_label.set_text(format!("Slot Usage:\t\t\t{} / {}", status_msg.used_slots, status_msg.total_slots).as_str());
-                        version_label.set_text(format!("Version:\t\t{}", status_msg.version_str).as_str());
-                        path_label.set_text(format!("Device:\t\t\t {}", dev).as_str());
-
-                        match timesync_check(status_msg.current_timestamp) {
-                            true => time_sync_label.set_text("Time Sync:\t\t True"),
-                            false => time_sync_label.set_text("Time Sync:\t\t False"),
-                        }
-                        match status_msg.vault_unlocked {
-                            true => status_label.set_text("Status:\t\t\t Online, UNLOCKED"),
-                            false => status_label.set_text("Status:\t\t\t Online, LOCKED"),
-                        }
-
-                        // Log out to terminal
-                        info!("Device fingerprint (SHA256): {}", public_key_to_hash(status_msg.public_key.as_str()).unwrap());
-                        debug!("Device Status: {:?}", status_msg);
-                    }
-                    Err(e) => {
-                        status_label.set_text("Status:\t No device inserted. Please restart");
-                        error!("Error getting status from device: {}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                status_label.set_text("Status:\t No device inserted. Please restart");
-                warn!("{}", e);
-            }
-        }
-        
         let widgets = AppWidgets {
             status_label,
             path_label,
@@ -230,8 +240,20 @@ impl SimpleComponent for AppModel {
             version_label,
             public_key_label,
             notebook,
-            time_progressbar
+            time_progressbar,
+            totp_list_box
         };
+
+        // Display if any devices are plugged in
+        match dev::TotpvaultDev::find_device() {
+            Ok(dev) => {
+                model.device_online = populate_ui(dev.as_str(), &widgets);
+            }
+            Err(e) => {
+                widgets.status_label.set_text("Status:\t No device inserted. Please restart");
+                warn!("{}", e);
+            }
+        }
 
         thread::spawn(move || {
             loop {

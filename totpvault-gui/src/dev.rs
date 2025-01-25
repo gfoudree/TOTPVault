@@ -102,5 +102,23 @@ impl TotpvaultDev {
 
         Ok(msg)
     }
-
+    
+    pub fn list_stored_credentials(dev_path: &str) -> Result<Vec<CredentialInfo>, String> {
+        // TODO: complete
+        Ok(vec![CredentialInfo{ domain_name: "google.com".to_string(), slot_id: 0 }])
+    }
+    
+    pub fn get_totp_code(credential: &CredentialInfo) -> Result<String, String> {
+        // TODO: complete
+        Ok("12345".to_string())
+    }
+    
+    pub fn add_credential(credential: &CredentialInfo) -> Result<(), String> {
+        //TODO: complete
+        Ok(())
+    }
+    pub fn delete_credential(credential: &CredentialInfo) -> Result<(), String> {
+        //TODO: complete
+        Ok(())
+    }
 }
