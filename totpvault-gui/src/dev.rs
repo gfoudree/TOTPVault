@@ -1,13 +1,14 @@
 const VID: u16 = 0x1a86;
 const PID: u16 = 0x55d3;
 
-use std::env;
-use rmp_serde::{Deserializer};
+use std::{env, vec};
+use rmp_serde::{Deserializer, Serializer};
 use serialport;
 use std::time::Duration;
-use serde::{Deserialize};
+use serde::{Deserialize, Serialize};
 use totpvault_lib::*;
 use std::io::Cursor;
+use chrono::Utc;
 use log::{debug, error, info};
 use serialport::{SerialPort, SerialPortType};
 
@@ -68,9 +69,15 @@ impl TotpvaultDev {
         Ok(())
     }
 
-    pub fn send_message(dev_path: &str, msg: u8) -> Result<Vec<u8>, String> {
-        let msg = vec![msg];
+    pub fn send_message(dev_path: &str, command: u8, message: Option<Vec<u8>>) -> Result<Vec<u8>, String> {
+        let mut data: Vec<u8> = Vec::new();
         let mut resp = [0; 1024];
+
+        // Build message stream
+        data.push(command);
+        if message.is_some() {
+            data.extend(message.unwrap());
+        }
 
         let mut port = serialport::new(dev_path, 115_200)
             .timeout(Duration::from_millis(1000))
@@ -79,14 +86,14 @@ impl TotpvaultDev {
         // Before sending a message, clear read buffer
         Self::empty_serial_buffer(&mut port, dev_path)?;
 
-        port.write(&msg).map_err(|e| format!("Error writing to serial port {}: {}", dev_path, e))?;
+        port.write(&data).map_err(|e| format!("Error writing to serial port {}: {}", dev_path, e))?;
 
         port.read(&mut resp).map_err(|e| format!("Error reading from serial port {}: {}", dev_path, e))?;
         Ok(resp.to_vec())
     }
 
     pub fn get_device_status(dev_path: &str) -> Result<SystemInfoMsg, String> {
-        let resp = Self::send_message(dev_path, CMD_DEV_INFO)?;
+        let resp = Self::send_message(dev_path, CMD_DEV_INFO, None)?;
         // Check that we got a valid SYSINFO message
         // TODO: cleanup code calling to always check for errors in a generic function
         if resp[0] != MSG_SYSINFO {
@@ -120,5 +127,20 @@ impl TotpvaultDev {
     pub fn delete_credential(credential: &CredentialInfo) -> Result<(), String> {
         //TODO: complete
         Ok(())
+    }
+
+    pub fn sync_time(dev_path: &str) -> Result<(), String> {
+        let current_time = Utc::now().timestamp() as u64;
+        let time_msg = SetTimeMsg{unix_timestamp: current_time};
+        let mut buf = Vec::new();
+        time_msg.serialize(&mut Serializer::new(&mut buf)).unwrap();
+        let resp = Self::send_message(dev_path, CMD_SET_TIME, Some(buf))?;
+        
+        if String::from_utf8_lossy(resp.as_slice()).contains("Success") {
+            Ok(())
+        } else {
+            debug!("Failed to sync time. Response received: {}", String::from_utf8_lossy(resp.as_slice()));
+            Err("Failed to sync time!".to_string())
+        }
     }
 }
