@@ -1,8 +1,8 @@
 mod dev;
 
 use gtk::prelude::{BoxExt, GtkWindowExt};
-use relm4::{gtk::{self, gdk::Display, gio, prelude::{FrameExt}, CssProvider, StyleContext}, ComponentParts, ComponentSender, RelmApp, SimpleComponent};
-use relm4::gtk::prelude::{ButtonExt, GridExt, WidgetExt};
+use relm4::{gtk::{self, gdk::Display, gio, prelude::{FrameExt}, CssProvider, StyleContext}, Component, ComponentParts, ComponentSender, RelmApp, SimpleComponent};
+use relm4::gtk::prelude::{ButtonExt, DialogExt, EditableExt, GridExt, WidgetExt};
 use log::{info, warn, error, debug};
 use env_logger::Builder;
 use std::{env, thread};
@@ -13,11 +13,14 @@ use base64::prelude::*;
 use sha2::{Digest, Sha256};
 use hex;
 use relm4::gtk::glib::clone;
+use relm4::gtk::{MessageDialog, MessageType};
+use totpvault_lib;
 
 const TOTP_TICK_SECONDS: f64 = 30.0;
 const ALLOWED_TIMESYNC_DELTA: i64 = 10;
 
 struct AppModel {
+    // Data fields
     counter: f64,
     device_online: bool,
     device_path: String,
@@ -25,12 +28,16 @@ struct AppModel {
     device_unlocked: bool,
     device_used_slots: u8,
     device_available_slots: u8,
+
+    // Widget fields
+    init_password_entry: Option<gtk::Entry>,
 }
 
 #[derive(Debug)]
 enum AppMsg {
     TimerTick,
     SyncTime,
+    InitVault,
 }
 struct AppWidgets {
     status_label: gtk::Label,
@@ -144,6 +151,20 @@ fn toggle_disable_widgets(disable: bool, widgets: &AppWidgets) {
     widgets.delete_entry_button.set_sensitive(disable);
 }
 
+fn create_error_dialog(msg: &str) -> MessageDialog {
+    let dialog = MessageDialog::builder().text(msg).title("Error").message_type(MessageType::Error).buttons(gtk::ButtonsType::Ok).build();
+    dialog.set_default_size(200, 60);
+    dialog.connect_response(|dialog, _| dialog.destroy());
+    dialog
+}
+
+fn create_success_dialog(msg: &str) -> MessageDialog {
+    let dialog = MessageDialog::builder().text(msg).title("Success").message_type(MessageType::Info).buttons(gtk::ButtonsType::Ok).build();
+    dialog.set_default_size(200, 60);
+    dialog.connect_response(|dialog, _| dialog.destroy());
+    dialog
+}
+
 impl SimpleComponent for AppModel {
     type Init = f64;
     type Input = AppMsg;
@@ -161,7 +182,7 @@ impl SimpleComponent for AppModel {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let mut model = AppModel{counter, device_online: false, device_path: "".to_string(), device_time_in_sync: false, device_unlocked: false, device_used_slots: 0, device_available_slots: 0 };
+        let mut model = AppModel{counter, device_online: false, device_path: "".to_string(), device_time_in_sync: false, device_unlocked: false, device_used_slots: 0, device_available_slots: 0, init_password_entry: None };
 
         let provider = CssProvider::new();
         provider.load_from_data(String::from_utf8(include_bytes!("style.css").to_vec()).unwrap().as_str());
@@ -214,7 +235,8 @@ impl SimpleComponent for AppModel {
 
         // Create Configure page
         let create_totp_entry_page = gtk::Box::builder().spacing(5).halign(gtk::Align::Center).valign(gtk::Align::Center).orientation(gtk::Orientation::Vertical).build();
-        let configure_grid = gtk::Grid::builder().margin_bottom(20).margin_start(15).valign(gtk::Align::End).vexpand(true).column_spacing(20).row_spacing(10).build();
+        let add_entry_grid = gtk::Grid::builder().margin_bottom(20).margin_start(15).valign(gtk::Align::End).vexpand(true).column_spacing(20).row_spacing(10).build();
+        let init_reset_grid = gtk::Grid::builder().margin_bottom(20).margin_start(15).valign(gtk::Align::End).vexpand(true).column_spacing(20).row_spacing(10).build();
 
         let add_entry_input_domain_name = gtk::Entry::builder().has_tooltip(true).tooltip_text("Domain name of website to store code for").build();
         let add_entry_input_totp_secret = gtk::Entry::builder().has_tooltip(true).tooltip_text("TOTP secret, base64 encoded").build();
@@ -229,15 +251,25 @@ impl SimpleComponent for AppModel {
         ));
 
         let attest_challenge_button = gtk::Button::builder().label("Attest Key").has_tooltip(true).tooltip_text("Send challenge to key and authenticate it").build();
+        let init_device_button = gtk::Button::builder().label("Init / Reset").has_tooltip(true).tooltip_text("Wipe and reset device").build();
+        let init_device_password_input = gtk::Entry::builder().has_tooltip(true).tooltip_text("Device password").build();
         let delete_selection_combobox = gtk::ComboBoxText::builder().has_tooltip(true).tooltip_text("Existing entry to delete").build();
         let delete_entry_button = gtk::Button::builder().label("Delete").build();
         delete_selection_combobox.append_text("google.com");
+        model.init_password_entry = Some(init_device_password_input.clone());
+        init_device_button.connect_clicked(clone!(
+            #[strong]
+            sender,
+            move |_| {
+                sender.input(AppMsg::InitVault);
+            }
+        ));
 
-        configure_grid.attach(&gtk::Label::new(Some("Website")),0, 0, 1, 1);
-        configure_grid.attach(&add_entry_input_domain_name,1, 0, 1, 1);
-        configure_grid.attach(&gtk::Label::new(Some("TOTP Secret")),0, 1, 1, 1);
-        configure_grid.attach(&add_entry_input_totp_secret,1, 1, 1, 1);
-        create_totp_entry_page.append(&configure_grid);
+        add_entry_grid.attach(&gtk::Label::new(Some("Website")), 0, 0, 1, 1);
+        add_entry_grid.attach(&add_entry_input_domain_name, 1, 0, 1, 1);
+        add_entry_grid.attach(&gtk::Label::new(Some("TOTP Secret")), 0, 1, 1, 1);
+        add_entry_grid.attach(&add_entry_input_totp_secret, 1, 1, 1, 1);
+        create_totp_entry_page.append(&add_entry_grid);
 
         create_totp_entry_page.append(&add_entry_submit_button);
         create_totp_entry_page.append(&gtk::Separator::builder().orientation(gtk::Orientation::Horizontal).margin_bottom(30).margin_top(30).build());
@@ -246,6 +278,11 @@ impl SimpleComponent for AppModel {
         create_totp_entry_page.append(&gtk::Separator::builder().orientation(gtk::Orientation::Horizontal).margin_bottom(30).margin_top(30).build());
         create_totp_entry_page.append(&sync_time_button);
         create_totp_entry_page.append(&attest_challenge_button);
+        create_totp_entry_page.append(&gtk::Separator::builder().orientation(gtk::Orientation::Horizontal).margin_bottom(30).margin_top(30).build());
+        init_reset_grid.attach(&gtk::Label::new(Some("Vault Password")), 0, 0, 1, 1);
+        init_reset_grid.attach(&init_device_password_input, 1, 0, 1, 1);
+        create_totp_entry_page.append(&init_reset_grid);
+        create_totp_entry_page.append(&init_device_button);
 
         // Build notebook with all the tabs
         notebook.append_page(&main_page, Some(&gtk::Label::new(Some("TOTP Codes"))));
@@ -310,10 +347,28 @@ impl SimpleComponent for AppModel {
                                 self.device_time_in_sync = timesync_check(dev_status.current_timestamp);
                             }
                         }
-                        Err(e) => error!("Error syncing time with device! {}", e)
+                        Err(e) => create_error_dialog(e.as_str()).show()
                     }
                 } else {
                     debug!("Not syncing time, device is not online or the device path is empty");
+                }
+            },
+            AppMsg::InitVault => {
+                let passwd = self.init_password_entry.clone().unwrap().text();
+                if passwd.is_empty() || passwd.len() < totpvault_lib::MIN_PW_LEN || passwd.len() > totpvault_lib::MAX_PW_LEN {
+                    create_error_dialog("Invalid password").show();
+                }
+                else {
+                    // Password is valid, init vault
+                    if self.device_path != "" && self.device_online {
+                        match dev::TotpvaultDev::init_vault(self.device_path.as_str(), passwd.as_str()) {
+                            Ok(_) => {
+                                create_success_dialog("Success").show();
+                                self.init_password_entry.clone().unwrap().set_text(""); // Clean out entry field
+                            },
+                            Err(e) => create_error_dialog(e.as_str()).show()
+                        }
+                    }
                 }
             }
         }
@@ -350,7 +405,7 @@ impl SimpleComponent for AppModel {
 
 fn main() {
     Builder::new()
-    .parse_filters("info")  // Set to 'info' to show info and above levels
+    .parse_filters("debug")  // Set to 'info' to show info and above levels
     .init();
 
     gio::resources_register_include!("icons.gresource").unwrap();

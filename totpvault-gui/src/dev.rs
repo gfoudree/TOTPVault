@@ -129,6 +129,18 @@ impl TotpvaultDev {
         Ok(())
     }
 
+    pub fn init_vault(dev_path: &str, password: &str) -> Result<(), String> {
+        let mut buf = Vec::new();
+        InitVaultMsg{password: password.to_string()}.serialize(&mut Serializer::new(&mut buf)).unwrap();
+
+        let resp = Self::send_message(dev_path, CMD_INIT_VAULT, Some(buf)).map_err(|e| format!("Error initializing vault at {}: {}", dev_path, e))?;
+        if String::from_utf8_lossy(resp.as_slice()).contains("Success") {
+            Ok(())
+        } else {
+            debug!("Vault failed to initialize with password: {}\tResponse received: {}", password, String::from_utf8_lossy(resp.as_slice()));
+            Err("Vault failed to initialize! Check logs".to_string())
+        }
+    }
     pub fn sync_time(dev_path: &str) -> Result<(), String> {
         let current_time = Utc::now().timestamp() as u64;
         let time_msg = SetTimeMsg{unix_timestamp: current_time};
@@ -140,7 +152,7 @@ impl TotpvaultDev {
             Ok(())
         } else {
             debug!("Failed to sync time. Response received: {}", String::from_utf8_lossy(resp.as_slice()));
-            Err("Failed to sync time!".to_string())
+            Err("Failed to sync time! Check logs".to_string())
         }
     }
 }
