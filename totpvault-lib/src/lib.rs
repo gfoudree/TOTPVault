@@ -19,10 +19,10 @@ pub const MSG_TOTP_CODE: u8 = 0x23;
 
 pub const MIN_TOTP_SECRET_LEN: usize = 16;
 pub const MAX_TOTP_SECRET_LEN: usize = 64;
-const MAX_DOMAIN_LEN: usize = 64;
-const MIN_DOMAIN_LEN: usize = 2;
-const MIN_PW_LEN: usize = 12;
-const MAX_PW_LEN: usize = 128;
+pub const MAX_DOMAIN_LEN: usize = 64;
+pub const MIN_DOMAIN_LEN: usize = 2;
+pub const MIN_PW_LEN: usize = 12;
+pub const MAX_PW_LEN: usize = 128;
 const MIN_TIMESTAMP: u64 = 1728590640;
 pub const NONCE_CHALLENGE_LEN: usize = 64;
 

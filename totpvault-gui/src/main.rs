@@ -1,7 +1,7 @@
 mod dev;
 
 use gtk::prelude::{BoxExt, GtkWindowExt};
-use relm4::{gtk::{self, gdk::Display, gio, prelude::{FrameExt}, CssProvider, StyleContext}, Component, ComponentParts, ComponentSender, RelmApp, SimpleComponent};
+use relm4::{gtk::{self, gdk::Display, gio, prelude::{FrameExt}, CssProvider, StyleContext}, ComponentParts, ComponentSender, RelmApp, SimpleComponent};
 use relm4::gtk::prelude::{ButtonExt, DialogExt, EditableExt, GridExt, WidgetExt};
 use log::{info, warn, error, debug};
 use env_logger::Builder;
@@ -252,7 +252,7 @@ impl SimpleComponent for AppModel {
 
         let attest_challenge_button = gtk::Button::builder().label("Attest Key").has_tooltip(true).tooltip_text("Send challenge to key and authenticate it").build();
         let init_device_button = gtk::Button::builder().label("Init / Reset").has_tooltip(true).tooltip_text("Wipe and reset device").build();
-        let init_device_password_input = gtk::Entry::builder().has_tooltip(true).tooltip_text("Device password").build();
+        let init_device_password_input = gtk::Entry::builder().build();
         let delete_selection_combobox = gtk::ComboBoxText::builder().has_tooltip(true).tooltip_text("Existing entry to delete").build();
         let delete_entry_button = gtk::Button::builder().label("Delete").build();
         delete_selection_combobox.append_text("google.com");

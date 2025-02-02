@@ -2,6 +2,7 @@ const VID: u16 = 0x1a86;
 const PID: u16 = 0x55d3;
 
 use std::{env, vec};
+use std::fmt::Debug;
 use rmp_serde::{Deserializer, Serializer};
 use serialport;
 use std::time::Duration;
@@ -69,6 +70,18 @@ impl TotpvaultDev {
         Ok(())
     }
 
+    fn send_message_verify<T: Serialize + Debug>(dev_path: &str, message: T, command: u8) -> Result<(), String> {
+        let mut buf: Vec<u8> = Vec::new();
+        message.serialize(&mut Serializer::new(&mut buf)).unwrap();
+        let resp = Self::send_message(dev_path, command, Some(buf))?;
+        if String::from_utf8_lossy(resp.as_slice()).contains("Success") {
+            Ok(())
+        } else {
+            debug!("Failed to send command={} with message={:?}. Got: {:?}", command, message, resp);
+            Err("Failed to send command".to_string())
+        }
+    }
+
     pub fn send_message(dev_path: &str, command: u8, message: Option<Vec<u8>>) -> Result<Vec<u8>, String> {
         let mut data: Vec<u8> = Vec::new();
         let mut resp = [0; 1024];
@@ -116,7 +129,7 @@ impl TotpvaultDev {
     }
     
     pub fn get_totp_code(credential: &CredentialInfo) -> Result<String, String> {
-        // TODO: complete
+        // TODO: complete. Change in Firmware to display the TOTP code with the listing of credentials to reduce time
         Ok("12345".to_string())
     }
     
@@ -125,34 +138,33 @@ impl TotpvaultDev {
         Ok(())
     }
     pub fn delete_credential(credential: &CredentialInfo) -> Result<(), String> {
-        //TODO: complete
+
         Ok(())
     }
 
-    pub fn init_vault(dev_path: &str, password: &str) -> Result<(), String> {
-        let mut buf = Vec::new();
-        InitVaultMsg{password: password.to_string()}.serialize(&mut Serializer::new(&mut buf)).unwrap();
+    pub fn unlock_vault(dev_path: &str, password: &str) -> Result<(), String> {
+        match Self::send_message_verify(dev_path, UnlockMsg{password: password.to_string()}, CMD_UNLOCK_VAULT) {
+            Ok(_) => Ok(()),
+            Err(_) => {
+                Err("Failed to unlock the vault! Check logs".to_string())
+            }
+        }
+    }
 
-        let resp = Self::send_message(dev_path, CMD_INIT_VAULT, Some(buf)).map_err(|e| format!("Error initializing vault at {}: {}", dev_path, e))?;
-        if String::from_utf8_lossy(resp.as_slice()).contains("Success") {
-            Ok(())
-        } else {
-            debug!("Vault failed to initialize with password: {}\tResponse received: {}", password, String::from_utf8_lossy(resp.as_slice()));
-            Err("Vault failed to initialize! Check logs".to_string())
+    pub fn init_vault(dev_path: &str, password: &str) -> Result<(), String> {
+        match Self::send_message_verify(dev_path, InitVaultMsg{password: password.to_string()}, CMD_INIT_VAULT) {
+            Ok(_) => Ok(()),
+            Err(_) => {
+                Err("Vault failed to initialize! Check logs".to_string())
+            }
         }
     }
     pub fn sync_time(dev_path: &str) -> Result<(), String> {
-        let current_time = Utc::now().timestamp() as u64;
-        let time_msg = SetTimeMsg{unix_timestamp: current_time};
-        let mut buf = Vec::new();
-        time_msg.serialize(&mut Serializer::new(&mut buf)).unwrap();
-        let resp = Self::send_message(dev_path, CMD_SET_TIME, Some(buf))?;
-        
-        if String::from_utf8_lossy(resp.as_slice()).contains("Success") {
-            Ok(())
-        } else {
-            debug!("Failed to sync time. Response received: {}", String::from_utf8_lossy(resp.as_slice()));
-            Err("Failed to sync time! Check logs".to_string())
+        match Self::send_message_verify(dev_path, SetTimeMsg{unix_timestamp: Utc::now().timestamp() as u64}, CMD_SET_TIME) {
+            Ok(_) => Ok(()),
+            Err(_) => {
+                Err("Failed to sync time! Check logs".to_string())
+            }
         }
     }
 }
