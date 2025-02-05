@@ -108,7 +108,6 @@ impl TotpvaultDev {
     pub fn get_device_status(dev_path: &str) -> Result<SystemInfoMsg, String> {
         let resp = Self::send_message(dev_path, CMD_DEV_INFO, None)?;
         // Check that we got a valid SYSINFO message
-        // TODO: cleanup code calling to always check for errors in a generic function
         if resp[0] != MSG_SYSINFO {
             // Dump error out
             if resp[0] == MSG_STATUS_MSG {
@@ -128,43 +127,41 @@ impl TotpvaultDev {
         Ok(vec![CredentialInfo{ domain_name: "google.com".to_string(), slot_id: 0 }])
     }
     
-    pub fn get_totp_code(credential: &CredentialInfo) -> Result<String, String> {
+    pub fn get_totp_code(dev_path: &str, credential: &CredentialInfo) -> Result<String, String> {
         // TODO: complete. Change in Firmware to display the TOTP code with the listing of credentials to reduce time
         Ok("12345".to_string())
     }
     
-    pub fn add_credential(credential: &CredentialInfo) -> Result<(), String> {
-        //TODO: complete
-        Ok(())
+    pub fn add_credential(dev_path: &str, domain_name: &str, totp_secret: &str) -> Result<(), String> {
+        match Self::send_message_verify(dev_path, CreateEntryMsg{domain_name: domain_name.to_string(), totp_secret: totp_secret.to_string()}, CMD_CREATE) {
+            Ok(_) => Ok(()),
+            Err(_) => Err("Failed to create credential! Check logs".to_string())
+        }
     }
-    pub fn delete_credential(credential: &CredentialInfo) -> Result<(), String> {
-
-        Ok(())
+    pub fn delete_credential(dev_path: &str, domain_name: &str) -> Result<(), String> {
+        match Self::send_message_verify(dev_path, DeleteEntryMsg{domain_name: domain_name.to_string()}, CMD_DELETE) {
+            Ok(_) => Ok(()),
+            Err(_) => Err("Failed to delete credential! Check logs".to_string())
+        }
     }
 
     pub fn unlock_vault(dev_path: &str, password: &str) -> Result<(), String> {
         match Self::send_message_verify(dev_path, UnlockMsg{password: password.to_string()}, CMD_UNLOCK_VAULT) {
             Ok(_) => Ok(()),
-            Err(_) => {
-                Err("Failed to unlock the vault! Check logs".to_string())
-            }
+            Err(_) => Err("Failed to unlock the vault! Check logs".to_string())
         }
     }
 
     pub fn init_vault(dev_path: &str, password: &str) -> Result<(), String> {
         match Self::send_message_verify(dev_path, InitVaultMsg{password: password.to_string()}, CMD_INIT_VAULT) {
             Ok(_) => Ok(()),
-            Err(_) => {
-                Err("Vault failed to initialize! Check logs".to_string())
-            }
+            Err(_) => Err("Vault failed to initialize! Check logs".to_string())
         }
     }
     pub fn sync_time(dev_path: &str) -> Result<(), String> {
         match Self::send_message_verify(dev_path, SetTimeMsg{unix_timestamp: Utc::now().timestamp() as u64}, CMD_SET_TIME) {
             Ok(_) => Ok(()),
-            Err(_) => {
-                Err("Failed to sync time! Check logs".to_string())
-            }
+            Err(_) => Err("Failed to sync time! Check logs".to_string())
         }
     }
 }

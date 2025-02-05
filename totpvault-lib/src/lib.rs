@@ -1,5 +1,6 @@
 use data_encoding::BASE32;
 use serde::{Deserialize, Serialize};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const CMD_SET_TIME: u8 = 0x10;
 pub const CMD_CREATE: u8 = 0x11;
@@ -33,13 +34,13 @@ pub trait Message {
     fn message_type_byte(&self) -> u8;
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Zeroize, ZeroizeOnDrop)]
 pub struct CreateEntryMsg {
     pub domain_name: String,
     pub totp_secret: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Zeroize, ZeroizeOnDrop)]
 pub struct UnlockMsg {
     pub password: String,
 }
@@ -54,7 +55,7 @@ pub struct DeleteEntryMsg {
     pub domain_name: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Zeroize, ZeroizeOnDrop)]
 pub struct InitVaultMsg {
     pub password: String,
 }

@@ -118,7 +118,7 @@ fn populate_ui(dev: &str, model: &mut AppModel, widgets: &AppWidgets) -> bool{
         Ok(credentials) => {
             for credential in credentials {
                 // Get TOTP code
-                match dev::TotpvaultDev::get_totp_code(&credential) {
+                match dev::TotpvaultDev::get_totp_code(dev, &credential) {
                     Ok(totp_code) => {
                         // Populate elements
                         let row = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).margin_start(20).margin_end(20).margin_top(8).margin_bottom(8).spacing(24).build();
