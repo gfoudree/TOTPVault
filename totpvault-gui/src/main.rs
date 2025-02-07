@@ -53,6 +53,11 @@ struct AppWidgets {
     add_entry_submit_button: gtk::Button,
     sync_time_button: gtk::Button,
     delete_entry_button: gtk::Button,
+    init_device_button: gtk::Button,
+    init_device_password_input: gtk::Entry,
+    delete_selection_combobox: gtk::ComboBoxText,
+    add_entry_input_domain_name: gtk::Entry,
+    add_entry_input_totp_secret: gtk::Entry,
 }
 
 fn get_remaining_totp_ticks() -> f64 {
@@ -85,7 +90,6 @@ fn public_key_to_hash(b64_publickey: &str) -> Result<String, String> {
     }
     formatted = formatted.to_uppercase();
     return Ok(formatted);
-
 }
 
 fn populate_ui(dev: &str, model: &mut AppModel, widgets: &AppWidgets) -> bool{
@@ -149,6 +153,11 @@ fn toggle_disable_widgets(disable: bool, widgets: &AppWidgets) {
     widgets.attest_challenge_button.set_sensitive(disable);
     widgets.add_entry_submit_button.set_sensitive(disable);
     widgets.delete_entry_button.set_sensitive(disable);
+    widgets.init_device_button.set_sensitive(disable);
+    widgets.init_device_password_input.set_sensitive(disable);
+    widgets.delete_selection_combobox.set_sensitive(disable);
+    widgets.add_entry_input_domain_name.set_sensitive(disable);
+    widgets.add_entry_input_totp_secret.set_sensitive(disable);
 }
 
 fn create_error_dialog(msg: &str) -> MessageDialog {
@@ -303,7 +312,12 @@ impl SimpleComponent for AppModel {
             attest_challenge_button,
             add_entry_submit_button,
             sync_time_button,
-            delete_entry_button
+            delete_entry_button,
+            init_device_button,
+            init_device_password_input,
+            delete_selection_combobox,
+            add_entry_input_domain_name,
+            add_entry_input_totp_secret,
         };
 
         // Display if any devices are plugged in
@@ -383,20 +397,25 @@ impl SimpleComponent for AppModel {
             false => widgets.time_sync_label.set_text("Time Sync:\t\t False"),
         }
 
-        match self.device_unlocked {
-            true => {
-                widgets.status_label.set_text("Status:\t\t\t Online, UNLOCKED");
-
-                // Enable Widgets
-                toggle_disable_widgets(true, &widgets);
-            },
-            false => {
-                widgets.status_label.set_text("Status:\t\t\t Online, LOCKED");
-
-                // Disable Widgets
-                toggle_disable_widgets(false, &widgets);
+        if self.device_online {
+            match self.device_unlocked {
+                true => {
+                    widgets.status_label.set_text("Status:\t\t\t Online, UNLOCKED");
+                    // Enable Widgets
+                    toggle_disable_widgets(true, &widgets);
+                },
+                false => {
+                    widgets.status_label.set_text("Status:\t\t\t Online, LOCKED");
+                    // Disable Widgets
+                    toggle_disable_widgets(false, &widgets);
+                }
             }
+        } else {
+            widgets.status_label.set_text("Status:\t\t\t No device found");
+            // Disable Widgets
+            toggle_disable_widgets(false, &widgets);
         }
+
 
         widgets.path_label.set_text(format!("Path:\t\t\t {}", self.device_path).as_str());
         widgets.slot_usage_label.set_text(format!("Slot Usage:\t\t\t{} / {}", self.device_used_slots, self.device_available_slots).as_str());
