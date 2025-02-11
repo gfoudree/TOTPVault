@@ -364,9 +364,15 @@ fn main() {
             if num > 0 {
                 let command = buf[0];
                 match command {
-                    CMD_SET_TIME => match sys.set_time(&buf, num) {
-                        Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
-                        Err(e) => send_response_message(&mut uart, e.as_str(), true),
+                    CMD_SET_TIME => {
+                        if sys.vault_unlocked == false {
+                            send_response_message(&mut uart, "Vault Locked!", true)
+                        } else {
+                            match sys.set_time(&buf, num) {
+                                Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
+                                Err(e) => send_response_message(&mut uart, e.as_str(), true),
+                            }
+                        }
                     },
                     CMD_CREATE => {
                         if sys.vault_unlocked == false {

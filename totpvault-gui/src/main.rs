@@ -16,7 +16,7 @@ use relm4::gtk::{MessageDialog, MessageType};
 use totpvault_lib::totpvault_dev::TotpvaultDev;
 
 const TOTP_TICK_SECONDS: f64 = 30.0;
-const ALLOWED_TIMESYNC_DELTA: i64 = 10;
+
 
 struct AppModel {
     // Data fields
@@ -59,45 +59,12 @@ struct AppWidgets {
     add_entry_input_totp_secret: gtk::Entry,
 }
 
-fn get_remaining_totp_ticks() -> f64 {
-    let ts = Utc::now();
-    return (30 - (ts.timestamp() % 30)) as f64;
-}
-
-fn timesync_check(device_timestamp: u64) -> bool {
-    let current_time = Utc::now().timestamp() as u64;
-    let time_delta = ((current_time - device_timestamp) as i64).abs();
-
-    info!("System time (UTC): {}     Device time (UTC): {}     Delta: {}", current_time, device_timestamp, time_delta);
-    if time_delta > ALLOWED_TIMESYNC_DELTA {
-        return false
-    }
-    return true
-}
-
-fn public_key_to_hash(b64_publickey: &str) -> Result<String, String> {
-    let decoded = BASE64_STANDARD.decode(b64_publickey).map_err(|e| e.to_string())?;
-    let digest = Sha256::digest(decoded);
-
-    let hash_str = hex::encode(digest);
-    let mut formatted = String::from("");
-    for chunk in hash_str.chars().collect::<Vec<char>>().chunks(2) {
-        formatted += format!("{}{}:", chunk[0], chunk[1]).as_str();
-    }
-    if formatted.chars().last().unwrap() == ':' {
-        formatted = formatted[..formatted.len()-1].to_string();
-    }
-    formatted = formatted.to_uppercase();
-    return Ok(formatted);
-}
-
 fn populate_ui(dev: &str, model: &mut AppModel, widgets: &AppWidgets) -> bool {
     // Check if device is locked or unlocked
-
     match TotpvaultDev::get_device_status(dev) {
         Ok(status_msg) => {
             // Populate metadata about device
-            match (public_key_to_hash(status_msg.public_key.as_str())) {
+            match (TotpvaultDev::public_key_to_hash(status_msg.public_key.as_str())) {
                 Ok(hash) => {
                     let hsh_truncated = &hash[0..23]; // Truncate hash, full hash to terminal out
                     widgets.public_key_label.set_text(format!("Public Key:\t\t {}", hsh_truncated).as_str()); // Necessary to trim extra null bytes for some reason
@@ -110,7 +77,7 @@ fn populate_ui(dev: &str, model: &mut AppModel, widgets: &AppWidgets) -> bool {
 
             widgets.version_label.set_text(format!("Version:\t\t{}", status_msg.version_str).as_str());
 
-            model.device_time_in_sync = timesync_check(status_msg.current_timestamp);
+            model.device_time_in_sync = TotpvaultDev::timesync_check(status_msg.current_timestamp);
             model.device_unlocked = status_msg.vault_unlocked;
             model.device_used_slots = status_msg.used_slots;
             model.device_available_slots = status_msg.total_slots;
@@ -243,7 +210,7 @@ impl SimpleComponent for AppModel {
         let totp_scrolled_window = gtk::ScrolledWindow::builder().halign(gtk::Align::Fill).hexpand(true).vexpand(true).build();
         let totp_list_box = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).build();
 
-        let remaining_totp_ticks = get_remaining_totp_ticks();
+        let remaining_totp_ticks = TotpvaultDev::get_remaining_totp_ticks();
         model.counter = remaining_totp_ticks*(1.0/TOTP_TICK_SECONDS);
         let time_progressbar = gtk::ProgressBar::builder().text(format!("{}s", remaining_totp_ticks as i32)).show_text(true).fraction(model.counter).build();
         totp_scrolled_window.set_child(Some(&totp_list_box));
@@ -366,7 +333,7 @@ impl SimpleComponent for AppModel {
                         Ok(_) => {
                             // Re-poll for the time and update the GUI if it is in sync now
                             if let Ok(dev_status) = TotpvaultDev::get_device_status(self.device_path.as_str()) {
-                                self.device_time_in_sync = timesync_check(dev_status.current_timestamp);
+                                self.device_time_in_sync = TotpvaultDev::timesync_check(dev_status.current_timestamp);
                             }
                         }
                         Err(e) => create_error_dialog(e.as_str()).show()
