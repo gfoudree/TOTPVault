@@ -92,13 +92,22 @@ fn public_key_to_hash(b64_publickey: &str) -> Result<String, String> {
     return Ok(formatted);
 }
 
-fn populate_ui(dev: &str, model: &mut AppModel, widgets: &AppWidgets) -> bool{
+fn populate_ui(dev: &str, model: &mut AppModel, widgets: &AppWidgets) -> bool {
     // Check if device is locked or unlocked
     match dev::TotpvaultDev::get_device_status(dev) {
         Ok(status_msg) => {
             // Populate metadata about device
-            let hsh_truncated = &public_key_to_hash(status_msg.public_key.as_str()).unwrap()[0..23]; // Truncate hash, full hash to terminal out
-            widgets.public_key_label.set_text(format!("Public Key:\t\t {}", hsh_truncated).as_str()); // Necessary to trim extra null bytes for some reason
+            match (public_key_to_hash(status_msg.public_key.as_str())) {
+                Ok(hash) => {
+                    let hsh_truncated = &hash[0..23]; // Truncate hash, full hash to terminal out
+                    widgets.public_key_label.set_text(format!("Public Key:\t\t {}", hsh_truncated).as_str()); // Necessary to trim extra null bytes for some reason
+                    info!("Device fingerprint (SHA256): {}", hash);
+                },
+                Err(e) => {
+                    error!("Unable to get public key hash from device! Got {:?}", status_msg.public_key);
+                }
+            }
+
             widgets.version_label.set_text(format!("Version:\t\t{}", status_msg.version_str).as_str());
 
             model.device_time_in_sync = timesync_check(status_msg.current_timestamp);
@@ -107,7 +116,6 @@ fn populate_ui(dev: &str, model: &mut AppModel, widgets: &AppWidgets) -> bool{
             model.device_available_slots = status_msg.total_slots;
 
             // Log out to terminal
-            info!("Device fingerprint (SHA256): {}", public_key_to_hash(status_msg.public_key.as_str()).unwrap());
             debug!("Device Status: {:?}", status_msg);
         }
         Err(e) => {
@@ -182,7 +190,7 @@ impl SimpleComponent for AppModel {
     type Widgets = AppWidgets;
 
     fn init_root() -> Self::Root {
-        gtk::Window::builder().title("TOTP").default_height(700).default_width(1100).build()
+        gtk::Window::builder().title("TOTPVault").default_height(700).default_width(1100).build()
     }
 
     // Initialize the UI.
