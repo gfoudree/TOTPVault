@@ -13,7 +13,6 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.exceptions import InvalidSignature
 import binascii
 import pyotp
-from urllib3.util import current_time
 
 STATUS_MSG = 0x01
 SYSINFO_MSG = 0x20
@@ -71,7 +70,7 @@ def getCreds(s):
 
 class TestFirmware(unittest.TestCase):
     def setUp(self):
-        self.s = serialtube(port='/dev/ttyACM1')
+        self.s = serialtube(port='/dev/tty.usbmodem57290167841')
         self.s.timeout = 5
         if self.s.can_recv(1):
             self.s.recv()
@@ -207,7 +206,7 @@ class TestFirmware(unittest.TestCase):
         self.assertIn("Success", getRespMsg(self.s))
 
         # Create valid item
-        totp_secret = base64.b32encode(os.getrandom(32)).decode()
+        totp_secret = base64.b32encode(os.urandom(32)).decode()
         self.s.send(b'\x11' + msgpack.packb(["test.com", totp_secret]))
         self.assertIn("Success", getRespMsg(self.s))
 
@@ -240,7 +239,7 @@ class TestFirmware(unittest.TestCase):
 
         for domain in ["google.com", "cloudflare", "facebook"]:
             # Create valid item
-            totp_secret = base64.b32encode(os.getrandom(32)).decode()
+            totp_secret = base64.b32encode(os.urandom(32)).decode()
             self.s.send(b'\x11' + msgpack.packb([domain, totp_secret]))
             self.assertIn("Success", getRespMsg(self.s))
 

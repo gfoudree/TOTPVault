@@ -9,7 +9,7 @@ pub fn format_nvs_partition() -> Result<(), String> {
     unsafe {
         let e = nvs_flash_erase();
         if e != ESP_OK {
-            return Err(format!("Unable to format default NVS partition!"));
+            return Err("Unable to format default NVS partition!".to_string());
         }
     }
     Ok(())
@@ -96,23 +96,13 @@ pub fn nvs_read_blob(key: &str) -> Result<Vec<u8>, String> {
 
     let mut buf = [0_u8; 512];
 
-    let val = match nvs_h.get_blob(key, &mut buf) {
-        Ok(Some(val)) => val,
-        Err(e) => {
-            return Err(format!(
-                "Unable to access blob. Database corrupted(?) please reset it. Err: {}",
-                e
-            ));
-        }
-        Ok(None) => {
-            return Err(
-                "Unable to access blob. Database corrupted(?) please reset it."
-                    .to_string(),
-            );
-        }
-    };
-
-    Ok(val.to_vec())
+    let nvs_read_result = nvs_h.get_blob(key, &mut buf).
+        map_err(|e| format!("Unable to get blob {}. Database corrupted(?) please reset it. Error = {}", key, e))?;
+    if let Some(val) = nvs_read_result {
+       Ok(val.to_vec())
+    } else {
+        Err("Unable to read blob. Database corrupted(?) please reset it.".to_string())
+    }
 }
 
 pub fn nvs_read_blob_encrypted(key: &str, encryption_key: &[u8; AES_KEY_LEN]) -> Result<Vec<u8>, String> {
@@ -120,30 +110,20 @@ pub fn nvs_read_blob_encrypted(key: &str, encryption_key: &[u8; AES_KEY_LEN]) ->
 
     let mut buf = [0_u8; 512];
 
-    let val = match nvs_h.get_blob(key, &mut buf) {
-        Ok(Some(val)) => val,
-        Err(e) => {
-            return Err(format!(
-                "Unable to access blob. Database corrupted(?) please reset it. Err: {}",
-                e
-            ));
-        }
-        Ok(None) => {
-            return Err(
-                "Unable to access blob. Database corrupted(?) please reset it."
-                    .to_string(),
-            );
-        }
-    };
+    let nvs_read_result = nvs_h.get_blob(key, &mut buf).
+        map_err(|e| format!("Unable to get blob {}. Database corrupted(?) please reset it. Error = {}", key, e))?;
+    if let Some(val) = nvs_read_result {
+        // Separate IV from ciphertext
+        let iv = &val[0..AES_IV_LEN];
+        let ciphertext = &val[AES_IV_LEN..];
 
-    // Separate IV from ciphertext
-    let iv = &val[0..AES_IV_LEN];
-    let ciphertext = &val[AES_IV_LEN..];
+        let plaintext = match decrypt_block( ciphertext, encryption_key, iv) {
+            Ok(v) => v,
+            Err(e) => { return Err(format!("Error decrypting blob! {}", e)); }
+        };
 
-    let plaintext = match decrypt_block( ciphertext, encryption_key, iv) {
-        Ok(v) => v,
-        Err(e) => { return Err(format!("Error decrypting blob! {}", e)); }
-    };
-    
-    Ok(plaintext)
+        Ok(plaintext)
+    } else {
+        Err("Unable to read blob. Database corrupted(?) please reset it.".to_string())
+    }
 }

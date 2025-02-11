@@ -117,6 +117,31 @@ impl System {
         Ok(())
     }
 
+    fn attest(&mut self, challenge_msg_bytes: &[u8]) -> Result<AttestationResponseMsg, String> {
+        let challenge_msg = rmp_serde::from_slice::<AuthenticateChallengeMsg>(&challenge_msg_bytes[1..]).
+            map_err(|_| "Invalid AuthenticateChallenge message")?;
+        if !challenge_msg.validate() {
+            return Err("Invalid AuthenticateChallenge message".to_string());
+        }
+
+        let challenge_bytes_vec  = base64::decode(challenge_msg.nonce_challenge.clone()).
+            map_err(|_| "Invalid AuthenticateChallenge message")?;
+
+        let challenge_bytes: [u8; NONCE_CHALLENGE_LEN] = challenge_bytes_vec.try_into().
+            map_err(|_| "Invalid AuthenticateChallenge message")?;
+
+        match sign_challenge(&challenge_bytes) {
+            Ok(sig) => {
+                #[cfg(debug_assertions)] {
+                    println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_ed25519_public_key_nvs()?, challenge_msg.nonce_challenge, sig);
+                }
+                let attestation_response_msg = AttestationResponseMsg { message: sig.to_string() };
+                Ok(attestation_response_msg)
+            }
+            Err(e) => Err(format!("Error signing challenge! {}", e))
+        }
+    }
+
     fn derive_encryption_key(password: &str, salt: &[u8; SALT_LEN]) -> [u8; 32] {
         let key = pbkdf2::pbkdf2_hmac_array::<Sha256, 32>(
             password.as_bytes(),
@@ -422,7 +447,7 @@ fn main() {
                         #[cfg(debug_assertions)]
                         println!("Challenge Raw Bytes: {}", hex::encode(&buf));
 
-                        match attest(&buf) {
+                        match sys.attest(&buf) {
                             Ok(attestation_response_msg) => {
                                 send_message(&mut uart, &attestation_response_msg);
                             },
@@ -436,30 +461,6 @@ fn main() {
                     }
                     _ => {}
                 }
-            }
-        }
-        fn attest(challenge_msg_bytes: &[u8]) -> Result<AttestationResponseMsg, String> {
-            let challenge_msg = rmp_serde::from_slice::<AuthenticateChallengeMsg>(&challenge_msg_bytes[1..]).
-                map_err(|_| "Invalid AuthenticateChallenge message")?;
-            if !challenge_msg.validate() {
-                return Err("Invalid AuthenticateChallenge message".to_string());
-            }
-
-            let challenge_bytes_vec  = base64::decode(challenge_msg.nonce_challenge.clone()).
-                map_err(|_| "Invalid AuthenticateChallenge message")?;
-
-            let challenge_bytes: [u8; NONCE_CHALLENGE_LEN] = challenge_bytes_vec.try_into().
-                map_err(|_| "Invalid AuthenticateChallenge message")?;
-
-            match sign_challenge(&challenge_bytes) {
-                Ok(sig) => {
-                    #[cfg(debug_assertions)] {
-                        println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_ed25519_public_key_nvs()?, challenge_msg.nonce_challenge, sig);
-                    }
-                    let attestation_response_msg = AttestationResponseMsg { message: sig.to_string() };
-                    Ok(attestation_response_msg)
-                }
-                Err(e) => Err(format!("Error signing challenge! {}", e))
             }
         }
     }
