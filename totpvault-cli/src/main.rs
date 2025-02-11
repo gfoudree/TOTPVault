@@ -34,11 +34,8 @@ enum Commands {
     #[command(about = "Get TOTP credential for a domain")]
     TotpCode(DomainArgs),
 
-    #[command(about = "Initialize the vault")]
+    #[command(about = "Initialize/Reset the vault (danger)")]
     InitVault,
-
-    #[command(about = "Reset the vault")]
-    ResetVault,
 
     #[command(about = "Get device information")]
     DevInfo,
@@ -123,8 +120,26 @@ fn main() {
         Commands::DeleteCredential(args) => println!("Deleting credential for domain: {}", args.domain_name),
         Commands::AddCredential(args) => println!("Adding credential for domain: {}", args.domain_name),
         Commands::TotpCode(args) => println!("Generating TOTP code for domain: {}", args.domain_name),
-        Commands::InitVault => println!("Initializing vault..."),
-        Commands::ResetVault => println!("Resetting vault..."),
+        Commands::InitVault => {
+            println!("{}", "**************** WARNING ****************".bold().red());
+            println!("Initializing the vault will {}!\nPlease make sure you will not be locked out of your accounts!\n\nDo you want to continue? (yes/no):", "WIPE EXISTING CREDENTIALS".bold().red());
+            let mut response = String::new();
+            std::io::stdin().read_line(&mut response).unwrap();
+            if response.to_lowercase().trim() == "yes" {
+                let mut p1 = rpassword::prompt_password("Enter vault password: ").unwrap();
+                let mut p2 = rpassword::prompt_password("Enter vault password (confirm): ").unwrap();
+                if p1 == p2 {
+                    match TotpvaultDev::init_vault(&device, &p1) {
+                        Ok(_) => println!("Successfully initialized vault!"),
+                        Err(error) => eprintln!("Error initializing vault: {}", error),
+                    }
+                } else {
+                    eprintln!("Passwords do not match!");
+                }
+                p1.zeroize();
+                p2.zeroize();
+            }
+        }
         Commands::DevInfo => {
             match TotpvaultDev::get_device_status(device) {
                 Ok(device_status) => {
