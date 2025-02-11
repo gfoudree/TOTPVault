@@ -7,12 +7,12 @@ use rmp_serde::{Deserializer, Serializer};
 use serialport;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
-use totpvault_lib::*;
 use std::io::Cursor;
 use chrono::Utc;
 use log::{debug, error, info};
 use serialport::{SerialPort, SerialPortType};
 
+use crate::*;
 pub struct TotpvaultDev {
 
 }

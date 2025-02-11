@@ -1,4 +1,3 @@
-mod dev;
 
 use gtk::prelude::{BoxExt, GtkWindowExt};
 use relm4::{gtk::{self, gdk::Display, gio, prelude::{FrameExt}, CssProvider, StyleContext}, ComponentParts, ComponentSender, RelmApp, SimpleComponent};
@@ -14,7 +13,7 @@ use sha2::{Digest, Sha256};
 use hex;
 use relm4::gtk::glib::clone;
 use relm4::gtk::{MessageDialog, MessageType};
-use totpvault_lib;
+use totpvault_lib::totpvault_dev::TotpvaultDev;
 
 const TOTP_TICK_SECONDS: f64 = 30.0;
 const ALLOWED_TIMESYNC_DELTA: i64 = 10;
@@ -94,7 +93,8 @@ fn public_key_to_hash(b64_publickey: &str) -> Result<String, String> {
 
 fn populate_ui(dev: &str, model: &mut AppModel, widgets: &AppWidgets) -> bool {
     // Check if device is locked or unlocked
-    match dev::TotpvaultDev::get_device_status(dev) {
+
+    match TotpvaultDev::get_device_status(dev) {
         Ok(status_msg) => {
             // Populate metadata about device
             match (public_key_to_hash(status_msg.public_key.as_str())) {
@@ -126,11 +126,11 @@ fn populate_ui(dev: &str, model: &mut AppModel, widgets: &AppWidgets) -> bool {
     }
 
     // Get list of stored entries on device
-    match dev::TotpvaultDev::list_stored_credentials(dev) {
+    match TotpvaultDev::list_stored_credentials(dev) {
         Ok(credentials) => {
             for credential in credentials {
                 // Get TOTP code
-                match dev::TotpvaultDev::get_totp_code(dev, &credential) {
+                match TotpvaultDev::get_totp_code(dev, &credential) {
                     Ok(totp_code) => {
                         // Populate elements
                         let row = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).margin_start(20).margin_end(20).margin_top(8).margin_bottom(8).spacing(24).build();
@@ -329,7 +329,7 @@ impl SimpleComponent for AppModel {
         };
 
         // Display if any devices are plugged in
-        match dev::TotpvaultDev::find_device() {
+        match TotpvaultDev::find_device() {
             Ok(dev) => {
                 model.device_online = populate_ui(dev.as_str(), &mut model, &widgets);
                 model.device_path = dev;
@@ -362,10 +362,10 @@ impl SimpleComponent for AppModel {
             },
             AppMsg::SyncTime => {
                 if self.device_path != "" && self.device_online {
-                    match dev::TotpvaultDev::sync_time(self.device_path.as_str()) {
+                    match TotpvaultDev::sync_time(self.device_path.as_str()) {
                         Ok(_) => {
                             // Re-poll for the time and update the GUI if it is in sync now
-                            if let Ok(dev_status) = dev::TotpvaultDev::get_device_status(self.device_path.as_str()) {
+                            if let Ok(dev_status) = TotpvaultDev::get_device_status(self.device_path.as_str()) {
                                 self.device_time_in_sync = timesync_check(dev_status.current_timestamp);
                             }
                         }
@@ -383,7 +383,7 @@ impl SimpleComponent for AppModel {
                 else {
                     // Password is valid, init vault
                     if self.device_path != "" && self.device_online {
-                        match dev::TotpvaultDev::init_vault(self.device_path.as_str(), passwd.as_str()) {
+                        match TotpvaultDev::init_vault(self.device_path.as_str(), passwd.as_str()) {
                             Ok(_) => {
                                 create_success_dialog("Success").show();
                                 self.init_password_entry.clone().unwrap().set_text(""); // Clean out entry field
