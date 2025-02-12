@@ -1,9 +1,11 @@
 use clap::{Args, Parser, Subcommand};
 use totpvault_lib::SystemInfoMsg;
-use totpvault_lib::totpvault_dev::TotpvaultDev;
 use colored::Colorize;
 use env_logger::Builder;
 use zeroize::Zeroize;
+use crate::totpvault_dev::TotpvaultDev;
+
+mod totpvault_dev;
 
 #[derive(Parser)]
 #[command(name = "TOTPVault CLI")]

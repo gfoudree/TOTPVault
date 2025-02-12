@@ -1,5 +1,3 @@
-pub mod totpvault_dev;
-
 use data_encoding::BASE32;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};

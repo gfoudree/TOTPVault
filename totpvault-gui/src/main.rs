@@ -1,4 +1,4 @@
-
+mod totpvault_dev;
 use gtk::prelude::{BoxExt, GtkWindowExt};
 use relm4::{gtk::{self, gdk::Display, gio, prelude::{FrameExt}, CssProvider, StyleContext}, ComponentParts, ComponentSender, RelmApp, SimpleComponent};
 use relm4::gtk::prelude::{ButtonExt, DialogExt, EditableExt, GridExt, WidgetExt};
@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use hex;
 use relm4::gtk::glib::clone;
 use relm4::gtk::{MessageDialog, MessageType};
-use totpvault_lib::totpvault_dev::TotpvaultDev;
+use crate::totpvault_dev::TotpvaultDev;
 
 const TOTP_TICK_SECONDS: f64 = 30.0;
 

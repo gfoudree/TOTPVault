@@ -1298,6 +1298,9 @@ dependencies = [
  "hex",
  "log",
  "relm4",
+ "rmp-serde",
+ "serde",
+ "serialport",
  "sha2",
  "totpvault-lib",
 ]
@@ -1306,15 +1309,8 @@ dependencies = [
 name = "totpvault-lib"
 version = "0.1.0"
 dependencies = [
- "base64",
- "chrono",
  "data-encoding",
- "hex",
- "log",
- "rmp-serde",
  "serde",
- "serialport",
- "sha2",
  "zeroize",
 ]
 
