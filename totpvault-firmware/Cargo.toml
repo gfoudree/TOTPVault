@@ -17,17 +17,12 @@ debug = true    # Symbols are nice and they don't increase the size on Flash
 opt-level = "z"
 
 [features]
-default = ["std", "embassy", "esp-idf-svc/native"]
+default = []
 
-pio = ["esp-idf-svc/pio"]
-std = ["alloc", "esp-idf-svc/binstart", "esp-idf-svc/std"]
-alloc = ["esp-idf-svc/alloc"]
-nightly = ["esp-idf-svc/nightly"]
-experimental = ["esp-idf-svc/experimental"]
-embassy = ["esp-idf-svc/embassy-sync", "esp-idf-svc/critical-section", "esp-idf-svc/embassy-time-driver"]
+
 
 [dependencies]
-esp-idf-svc = { version = "0.51.0", default-features = false }
+esp-idf-svc = { version = "0.51", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
 zeroize = "1.8.1"
 rand = "0.8.5"
 sha2 = "0.10.8"
@@ -47,4 +42,4 @@ totpvault-lib = { path = "../totpvault-lib" }
 
 [build-dependencies]
 embuild = "0.33.0"
-cc = "=1.1.30" # Necessary until a new version of `esp-idf-sys` is released
+#cc = "=1.1.30" # Necessary until a new version of `esp-idf-sys` is released

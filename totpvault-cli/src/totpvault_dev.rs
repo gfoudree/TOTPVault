@@ -111,14 +111,26 @@ impl TotpvaultDev {
         if message.validate() == false {
             return Err("Invalid message".to_string());
         }
+
         message.serialize(&mut Serializer::new(&mut buf)).unwrap();
         let resp = Self::send_message(dev_path, command, Some(buf))?;
+
         if String::from_utf8_lossy(resp.as_slice()).contains("Success") {
             Ok(())
-        } else {
+        } 
+        else {
+            // Did we get an error/status message back?
+            if resp[0] == MSG_STATUS_MSG {
+                // Try and decode status_msg
+                if let Ok(status_msg) = rmp_serde::from_slice::<StatusMsg>(&resp[1..]) {
+                    debug!("Failed to execute command={} with message={:?}. Got {:?}\nRaw={:?}", command, message, status_msg, resp);
+                    return Err(status_msg.message);
+                } 
+            } 
             debug!("Failed to send command={} with message={:?}. Got: {:?}", command, message, resp);
             Err("Failed to send command".to_string())
         }
+        
     }
 
     pub fn send_message(dev_path: &str, command: u8, message: Option<Vec<u8>>) -> Result<Vec<u8>, String> {
@@ -198,9 +210,6 @@ impl TotpvaultDev {
         }
     }
     pub fn sync_time(dev_path: &str) -> Result<(), String> {
-        match Self::send_message_verify(dev_path, SetTimeMsg{unix_timestamp: Utc::now().timestamp() as u64}, CMD_SET_TIME) {
-            Ok(_) => Ok(()),
-            Err(_) => Err("Failed to sync time! Check logs".to_string())
-        }
+        Self::send_message_verify(dev_path, SetTimeMsg{unix_timestamp: Utc::now().timestamp() as u64}, CMD_SET_TIME)
     }
 }
