@@ -6,6 +6,7 @@ use zeroize::Zeroize;
 use crate::totpvault_dev::TotpvaultDev;
 
 mod totpvault_dev;
+mod totpvault_comm;
 
 #[derive(Parser)]
 #[command(name = "TOTPVault CLI")]
@@ -118,10 +119,17 @@ fn main() {
                 Err(error) => eprintln!("Error syncing device time\n\tError = {}", error),
             }
         }
-        Commands::ListCredentials => println!("Listing credentials..."),
-        Commands::DeleteCredential(args) => println!("Deleting credential for domain: {}", args.domain_name),
-        Commands::AddCredential(args) => println!("Adding credential for domain: {}", args.domain_name),
-        Commands::TotpCode(args) => println!("Generating TOTP code for domain: {}", args.domain_name),
+        Commands::ListCredentials => {
+            match TotpvaultDev::list_stored_credentials(device) {
+                Ok(credentials) => {
+                    println!("{:?}", credentials);
+                }
+                Err(error) => eprintln!("Error listing stored credentials. Error = {}", error),
+            }
+        }
+        Commands::DeleteCredential(args) => todo!("Deleting credential for domain: {}", args.domain_name),
+        Commands::AddCredential(args) => todo!("Adding credential for domain: {}", args.domain_name),
+        Commands::TotpCode(args) => todo!("Generating TOTP code for domain: {}", args.domain_name),
         Commands::InitVault => {
             println!("{}", "**************** WARNING ****************".bold().red());
             println!("Initializing the vault will {}!\nPlease make sure you will not be locked out of your accounts!\n\nDo you want to continue? (yes/no):", "WIPE EXISTING CREDENTIALS".bold().red());
@@ -150,7 +158,7 @@ fn main() {
                 Err(error) => eprintln!("Unable to get device status from: {}\n\tError = {}", device, error),
             }
         }
-        Commands::AttestDev => println!("Attesting device..."),
+        Commands::AttestDev => todo!("Attesting device..."),
         Commands::ListDevices => {
             if let Ok(dev) = TotpvaultDev::find_device() {
                 println!("Found TOTPVault device: {}", dev);
@@ -167,7 +175,12 @@ fn main() {
             }
             password.zeroize();
         }
-        Commands::LockVault => println!("Locking vault..."),
-        Commands::DumpLogs => println!("Dumping logs..."),
+        Commands::LockVault => {
+            match TotpvaultDev::lock_vault(device) {
+                Ok(_) => println!("{}", "Locked vault".green()),
+                Err(error) => eprintln!("Error locking vault: {}", error),
+            }
+        }
+        Commands::DumpLogs => todo!("Dumping logs..."),
     }
 }
