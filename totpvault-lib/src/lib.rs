@@ -1,6 +1,8 @@
 use data_encoding::BASE32;
 use serde::{Deserialize, Serialize};
+use totp_rs;
 use zeroize::{Zeroize, ZeroizeOnDrop};
+use log::debug;
 
 pub const CMD_SET_TIME: u8 = 0x10;
 pub const CMD_CREATE: u8 = 0x11;
@@ -29,6 +31,17 @@ pub const NONCE_CHALLENGE_LEN: usize = 64;
 
 pub const SUCCESS_MSG: &str = "Success!";
 
+fn print_debug_msg(msg: String) {
+    // For the desktop
+    #[cfg(not(target_arch = "riscv32"))] {
+        debug!("{}", msg);
+    }
+
+    // For the ESP32
+    #[cfg(all(target_arch = "riscv32", debug_assertions))] {
+        println!("{}", msg);
+    }
+}
 pub trait Message {
     fn validate(&self) -> bool;
     fn message_type_byte(&self) -> u8;
@@ -129,9 +142,7 @@ impl Message for StatusMsg {
 impl Message for AuthenticateChallengeMsg {
     fn validate(&self) -> bool {
         if self.nonce_challenge.len() > 100 || self.nonce_challenge.len() < 63 {
-            #[cfg(debug_assertions)]
-            println!("Nonce size of {} is != {NONCE_CHALLENGE_LEN}", self.nonce_challenge.len());
-
+            print_debug_msg(format!("Nonce size of {} is != {}", self.nonce_challenge.len(), NONCE_CHALLENGE_LEN));
             return false;
         }
         true
@@ -142,9 +153,7 @@ impl Message for AuthenticateChallengeMsg {
 impl Message for DeleteEntryMsg {
     fn validate(&self) -> bool {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
-            #[cfg(debug_assertions)]
-            println!("Domain name is > {MAX_DOMAIN_LEN} bytes or < {MIN_DOMAIN_LEN} bytes!");
-
+            print_debug_msg(format!("Domain name is > {} bytes or < {} bytes!", MAX_DOMAIN_LEN, MIN_DOMAIN_LEN));
             return false;
         }
         true
@@ -156,9 +165,7 @@ impl Message for SetTimeMsg {
     fn validate(&self) -> bool {
         // Check if the timestamp is something valid (later than 10/10/2024)
         if self.unix_timestamp < MIN_TIMESTAMP {
-            #[cfg(debug_assertions)]
-            println!("UNIX timestamp {} is less than {MIN_TIMESTAMP}", self.unix_timestamp);
-
+            print_debug_msg(format!("UNIX timestamp {} is less than {}", self.unix_timestamp, MIN_TIMESTAMP));
             return false;
         }
         true
@@ -169,6 +176,7 @@ impl Message for SetTimeMsg {
 impl Message for UnlockMsg {
     fn validate(&self) -> bool {
         if self.password.len() < MIN_PW_LEN || self.password.len() > MAX_PW_LEN {
+            print_debug_msg(format!("Password length is > {} or < {} bytes!", MAX_PW_LEN, MIN_PW_LEN));
             return false;
         }
         true
@@ -179,6 +187,7 @@ impl Message for UnlockMsg {
 impl Message for InitVaultMsg {
     fn validate(&self) -> bool {
         if self.password.len() < MIN_PW_LEN || self.password.len() > MAX_PW_LEN {
+            print_debug_msg(format!("Password length is > {} or < {} bytes!", MAX_PW_LEN, MIN_PW_LEN));
             return false;
         }
         true
@@ -189,29 +198,33 @@ impl Message for InitVaultMsg {
 impl Message for CreateEntryMsg {
     fn validate(&self) -> bool {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
-            #[cfg(debug_assertions)]
-            println!("Domain name is > {MAX_DOMAIN_LEN} bytes or < {MIN_DOMAIN_LEN} bytes!");
-
+            print_debug_msg(format!("Domain name is > {} bytes or < {} bytes!", MAX_DOMAIN_LEN, MIN_DOMAIN_LEN));
             return false;
         }
 
         // TODO: establish correct values
         // TODO: Base32 encoding is not going to always be the same length (?) how do we handle this?
         if self.totp_secret.len() > MAX_TOTP_SECRET_LEN || self.totp_secret.len() < MIN_TOTP_SECRET_LEN {
-            #[cfg(debug_assertions)]
-            println!("TOTP secret is > {MAX_TOTP_SECRET_LEN} bytes or < {MIN_TOTP_SECRET_LEN} bytes!");
-
+            print_debug_msg(format!("TOTP secret is > {} bytes or < {} bytes!", MAX_TOTP_SECRET_LEN, MIN_TOTP_SECRET_LEN));
             return false;
         }
 
         // Check if secret is valid BASE32 per the spec
         if BASE32.decode(self.totp_secret.as_bytes()).is_err() {
-            #[cfg(debug_assertions)]
-            println!("TOTP secret is not valid base32!");
-
+            print_debug_msg("TOTP secret is not valid base32!".to_string());
             return false;
         }
-        true
+
+        // Finally, make sure that the TOTP library can encode it
+        let totp_secret_parsed: totp_rs::Secret = totp_rs::Secret::Encoded(self.totp_secret.clone());
+        match totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, totp_secret_parsed.to_bytes().unwrap()) {
+            Ok(_) => true,
+            Err(e) => {
+                print_debug_msg(format!("TOTP Secret is invalid: {}", e));
+
+                false
+            }
+        }
     }
     fn message_type_byte(&self) -> u8 { CMD_CREATE }
 }
@@ -220,9 +233,7 @@ impl Message for CreateEntryMsg {
 impl Message for DisplayCodeMsg {
     fn validate(&self) -> bool {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
-            #[cfg(debug_assertions)]
-            println!("Domain name is > {MAX_DOMAIN_LEN} bytes or < {MIN_DOMAIN_LEN} bytes!");
-
+            print_debug_msg(format!("Domain name is > {MAX_DOMAIN_LEN} bytes or < {MIN_DOMAIN_LEN} bytes!"));
             return false;
         }
         true

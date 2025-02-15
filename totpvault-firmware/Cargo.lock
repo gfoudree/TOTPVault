@@ -1814,6 +1814,7 @@ dependencies = [
  "hmac",
  "sha1",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]
@@ -1845,7 +1846,9 @@ name = "totpvault-lib"
 version = "0.1.0"
 dependencies = [
  "data-encoding",
+ "log",
  "serde",
+ "totp-rs",
  "zeroize",
 ]
 

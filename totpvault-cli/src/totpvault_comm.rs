@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::io::Read;
 use std::time::Duration;
+use log::debug;
 use rmp_serde::Serializer;
 use serde::Serialize;
 use serialport::SerialPort;
@@ -9,12 +10,13 @@ use totpvault_lib::{Message, StatusMsg, MSG_STATUS_MSG};
 pub fn check_status_msg(resp: Vec<u8>) -> Result<(), String> {
     let resp_msg_type = resp[0];
     if resp_msg_type != MSG_STATUS_MSG {
+        debug!("Expected a MSG_STATUS_MSG, but got type {} Raw = {:?}", resp_msg_type, resp);
         return Err(format!("Got unexpected message, type: {}", resp_msg_type));
     }
 
     let status_msg = rmp_serde::from_slice::<StatusMsg>(&resp[1..]).map_err(|e| format!("Error deserializing StatusMsg: {}", e))?;
     if status_msg.error {
-        Err(format!("Error sending message: {:?}", status_msg.message))
+        Err(status_msg.message)
     } else {
         Ok(())
     }
@@ -23,7 +25,7 @@ pub fn check_status_msg(resp: Vec<u8>) -> Result<(), String> {
 fn transmit_bytes(dev_path: &str, data: Vec<u8>) -> Result<Vec<u8>, String> {
     let mut resp = [0; 1024];
     let mut port = serialport::new(dev_path, 115_200)
-        .timeout(Duration::from_millis(1000))
+        .timeout(Duration::from_millis(10000))
         .open().map_err(|e| format!("Unable to open serial port {}: {}", dev_path, e))?;
 
     // Before sending a message, clear read buffer

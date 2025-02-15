@@ -115,34 +115,48 @@ impl TotpvaultDev {
     pub fn list_stored_credentials(dev_path: &str) -> Result<Vec<CredentialInfo>, String> {
         let resp = send_command(dev_path, CMD_LIST)?;
         if resp[0] == MSG_LIST_CREDS {
-            let creds: Vec<CredentialInfo> = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
-            Ok(creds)
+            let cred_list_msg: CredentialListMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
+            Ok(cred_list_msg.credentials)
         } else {
             if resp[0] == MSG_STATUS_MSG {
                 let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
-                return Err(format!("Error getting device status: {}", msg.message));
+                Err(format!("Error getting device status: {}", msg.message))
             }
             else {
-                return Err("Invalid response message from device!".to_string());
+                Err("Invalid response message from device!".to_string())
             }
         }
     }
     
-    pub fn get_totp_code(dev_path: &str, credential: &CredentialInfo) -> Result<String, String> {
-        // TODO: complete. Change in Firmware to display the TOTP code with the listing of credentials to reduce time
-        Ok("12345".to_string())
+    pub fn get_totp_code(dev_path: &str, domain_name: &str) -> Result<String, String> {
+        let resp = send_message(dev_path, DisplayCodeMsg{domain_name: domain_name.to_string()}, CMD_DISPLAY_CODE)?;
+        if resp[0] == MSG_TOTP_CODE {
+            let totp_code_msg: TOTPCodeMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
+            Ok(totp_code_msg.totp_code)
+        } else {
+            if resp[0] == MSG_STATUS_MSG {
+                let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
+                Err(format!("Error getting TOTP code: {}", msg.message))
+            }
+            else {
+                Err("Invalid response message from device!".to_string())
+            }
+        }
     }
     
     pub fn add_credential(dev_path: &str, domain_name: &str, totp_secret: &str) -> Result<(), String> {
         match send_message(dev_path, CreateEntryMsg{domain_name: domain_name.to_string(), totp_secret: totp_secret.to_string()}, CMD_CREATE) {
             Ok(_) => Ok(()),
-            Err(_) => Err("Failed to create credential! Check logs".to_string())
+            Err(e) =>  {
+                debug!("Error adding TOTP credential: {}", e);
+                Err("Failed to create credential! Try with -v for more info".to_string())
+            }
         }
     }
     pub fn delete_credential(dev_path: &str, domain_name: &str) -> Result<(), String> {
         match send_message(dev_path, DeleteEntryMsg{domain_name: domain_name.to_string()}, CMD_DELETE) {
             Ok(_) => Ok(()),
-            Err(_) => Err("Failed to delete credential! Check logs".to_string())
+            Err(_) => Err("Failed to delete credential! Try with -v for more info".to_string())
         }
     }
 
@@ -170,7 +184,7 @@ impl TotpvaultDev {
     }
 
     pub fn lock_vault(dev_path: &str) -> Result<(), String> {
-        let resp = send_command(dev_path, CMD_LOCK_VAULT)?;
-        check_status_msg(resp)
+        let res = send_command(dev_path, CMD_LOCK_VAULT)?;
+        check_status_msg(res)
     }
 }

@@ -124,12 +124,24 @@ fn main() {
                 Ok(credentials) => {
                     println!("{:?}", credentials);
                 }
-                Err(error) => eprintln!("Error listing stored credentials. Error = {}", error),
+                Err(error) => eprintln!("Error listing stored credentials. {}", error),
             }
         }
         Commands::DeleteCredential(args) => todo!("Deleting credential for domain: {}", args.domain_name),
-        Commands::AddCredential(args) => todo!("Adding credential for domain: {}", args.domain_name),
-        Commands::TotpCode(args) => todo!("Generating TOTP code for domain: {}", args.domain_name),
+        Commands::AddCredential(args) => {
+            let mut totp_secret = rpassword::prompt_password("Enter TOTP Secret Key: ").unwrap();
+            match TotpvaultDev::add_credential(device, args.domain_name.as_str(), totp_secret.as_str()) {
+                Ok(_) => println!("Successfully added credential"),
+                Err(error) => eprintln!("{}", error),
+            }
+            totp_secret.zeroize();
+        }
+        Commands::TotpCode(args) => {
+            match TotpvaultDev::get_totp_code(device, args.domain_name.as_str()) {
+                Ok(totp_code) => println!("{}", totp_code),
+                Err(error) => eprintln!("Error getting TOTP code for {}: {}", args.domain_name, error),
+            }
+        }
         Commands::InitVault => {
             println!("{}", "**************** WARNING ****************".bold().red());
             println!("Initializing the vault will {}!\nPlease make sure you will not be locked out of your accounts!\n\nDo you want to continue? (yes/no):", "WIPE EXISTING CREDENTIALS".bold().red());
