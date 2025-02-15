@@ -99,7 +99,7 @@ class TestFirmware(unittest.TestCase):
         self.assertTrue(resp[0] == MSG_ATTESTATION_RESPONSE)
         signature = msgpack.unpackb(resp[1:])[0]
         print(f"\nPublic key: {binascii.b2a_hex(b64d(pubkey)).decode()}\nChallenge: {binascii.b2a_hex(randombytes).decode()}\nSignature: {signature}")
-        self.assertTrue(checkEd25519Signature(b64d(pubkey), binascii.a2b_hex(signature), randombytes))
+        self.assertTrue(checkEd25519Signature(b64d(pubkey), b64d(signature), randombytes))
 
     def test_get_host_info(self):
         # Get host info

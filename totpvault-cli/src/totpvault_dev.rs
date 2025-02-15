@@ -10,11 +10,13 @@ use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use chrono::Utc;
 use log::{debug, info};
+use rand::RngCore;
 use serialport::{SerialPortType};
 use sha2::{Digest, Sha256};
 use crate::*;
 use totpvault_lib::*;
 use crate::totpvault_comm::{check_status_msg, send_command, send_message};
+use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 
 pub struct TotpvaultDev {
 
@@ -186,5 +188,40 @@ impl TotpvaultDev {
     pub fn lock_vault(dev_path: &str) -> Result<(), String> {
         let res = send_command(dev_path, CMD_LOCK_VAULT)?;
         check_status_msg(res)
+    }
+
+    pub fn attest_device(dev_path: &str, pub_key_b64: &str) -> Result<(), String> {
+        // Decode public key
+        let pub_key = base64::decode(pub_key_b64).map_err(|e| format!("Error decoding public key: {}", e))?;
+        let pub_key_bytes: [u8; 32] = pub_key.try_into().map_err(|_| "Public key not proper length!")?;
+
+        // Generate random challenge
+        let random_bytes: [u8; 64] = rand::random();
+        let random_bytes_encoded = base64::encode(&random_bytes);
+
+        let resp = send_message(dev_path, AuthenticateChallengeMsg{nonce_challenge: random_bytes_encoded}, CMD_ATTEST)?;
+        if resp[0] == MSG_ATTESTATION_RESPONSE {
+            let attestation_resp_msg: AttestationResponseMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
+            // Check the attestation message
+            let attestation_reply_bytes = base64::decode(attestation_resp_msg.message).map_err(|e| e.to_string())?;
+
+            debug!("Attestation:\nChallenge: {}\nResponse: {}\nDevice ED25519 Pubkey: {}", hex::encode(random_bytes.clone()), hex::encode(attestation_reply_bytes.clone()), hex::encode(pub_key_bytes.clone()));
+            Self::ed25519_verify_signature(&pub_key_bytes, random_bytes.as_slice(), &attestation_reply_bytes)
+        } else {
+            if resp[0] == MSG_STATUS_MSG {
+                let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
+                Err(format!("Error getting device status: {}", msg.message))
+            }
+            else {
+                Err("Invalid response message from device!".to_string())
+            }
+        }
+    }
+
+    fn ed25519_verify_signature(public_key_bytes: &[u8; 32], message: &[u8], signature_bytes: &[u8]) -> Result<(), String> {
+        let pub_key = VerifyingKey::from_bytes(public_key_bytes).map_err(|e| e.to_string())?;
+        let signature = Signature::try_from(signature_bytes).map_err(|e| e.to_string())?;
+
+        pub_key.verify(message, &signature).map_err(|e| e.to_string())
     }
 }

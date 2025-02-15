@@ -114,7 +114,7 @@ pub struct StatusMsg {
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AttestationResponseMsg {
-    pub message: String,
+    pub message: String, // Base64 encoded
 }
 
 impl Message for TOTPCodeMsg {
@@ -221,7 +221,6 @@ impl Message for CreateEntryMsg {
             Ok(_) => true,
             Err(e) => {
                 print_debug_msg(format!("TOTP Secret is invalid: {}", e));
-
                 false
             }
         }

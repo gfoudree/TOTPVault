@@ -132,11 +132,12 @@ impl System {
 
         match sign_challenge(&challenge_bytes) {
             Ok(sig) => {
+                let signature_encoded = base64::encode(sig.to_vec());
                 #[cfg(debug_assertions)] {
-                    println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_ed25519_public_key_nvs()?, challenge_msg.nonce_challenge, sig);
+                    println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_ed25519_public_key_nvs()?, challenge_msg.nonce_challenge, signature_encoded);
                 }
-                let attestation_response_msg = AttestationResponseMsg { message: sig.to_string() };
-                Ok(attestation_response_msg)
+
+                Ok(AttestationResponseMsg{ message: signature_encoded })
             }
             Err(e) => Err(format!("Error signing challenge! {}", e))
         }

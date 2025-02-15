@@ -138,8 +138,11 @@ fn main() {
         }
         Commands::TotpCode(args) => {
             match TotpvaultDev::get_totp_code(device, args.domain_name.as_str()) {
-                Ok(totp_code) => println!("{}", totp_code),
-                Err(error) => eprintln!("Error getting TOTP code for {}: {}", args.domain_name, error),
+                Ok(totp_code) => {
+                    let time_remaining = TotpvaultDev::get_remaining_totp_ticks();
+                    println!("{}\t{}s remaining", totp_code, time_remaining);
+                }
+            Err(error) => eprintln!("Error getting TOTP code for {}: {}", args.domain_name, error),
             }
         }
         Commands::InitVault => {
@@ -170,7 +173,18 @@ fn main() {
                 Err(error) => eprintln!("Unable to get device status from: {}\n\tError = {}", device, error),
             }
         }
-        Commands::AttestDev => todo!("Attesting device..."),
+        Commands::AttestDev => {
+            match TotpvaultDev::get_device_status(device) {
+                Ok(device_status) => {
+                    let pub_key_b64 = device_status.public_key;
+                        match TotpvaultDev::attest_device(device, pub_key_b64.as_str()) {
+                            Ok(_) => println!("Successfully attested device"),
+                            Err(error) => eprintln!("Error attesting device: {}", error),
+                        }
+                },
+                Err(e) => eprintln!("Unable to get device status from: {}\n\tError = {}", device, e),
+            }
+        }
         Commands::ListDevices => {
             if let Ok(dev) = TotpvaultDev::find_device() {
                 println!("Found TOTPVault device: {}", dev);
