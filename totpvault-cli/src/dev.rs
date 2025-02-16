@@ -16,6 +16,7 @@ use crate::*;
 use totpvault_lib::*;
 use crate::comm::{check_status_msg, send_command, send_message};
 use ed25519_dalek::{VerifyingKey, Signature, Verifier};
+use rand_latest;
 
 pub struct TotpvaultDev {
 
@@ -41,6 +42,9 @@ impl TotpvaultDev {
 
     // Create SHA256 hash of base64-encoded public key
     pub fn public_key_to_hash(b64_publickey: &str) -> Result<String, String> {
+        if b64_publickey.len() == 0 {
+            return Err("Invalid public key length".to_string());
+        }
         let decoded = BASE64_STANDARD.decode(b64_publickey).map_err(|e| e.to_string())?;
         let digest = Sha256::digest(decoded);
 
@@ -197,7 +201,7 @@ impl TotpvaultDev {
         let pub_key_bytes: [u8; 32] = pub_key.try_into().map_err(|_| "Public key not proper length!")?;
 
         // Generate random challenge
-        let random_bytes: [u8; 64] = rand::random();
+        let random_bytes: [u8; 64] = rand_latest::random();
         let random_bytes_encoded = BASE64_STANDARD.encode(&random_bytes);
 
         let resp = send_message(dev_path, AuthenticateChallengeMsg{nonce_challenge: random_bytes_encoded}, CMD_ATTEST)?;
@@ -219,7 +223,7 @@ impl TotpvaultDev {
         }
     }
 
-    fn ed25519_verify_signature(public_key_bytes: &[u8; 32], message: &[u8], signature_bytes: &[u8]) -> Result<(), String> {
+    pub fn ed25519_verify_signature(public_key_bytes: &[u8; 32], message: &[u8], signature_bytes: &[u8]) -> Result<(), String> {
         let pub_key = VerifyingKey::from_bytes(public_key_bytes).map_err(|e| e.to_string())?;
         let signature = Signature::try_from(signature_bytes).map_err(|e| e.to_string())?;
 

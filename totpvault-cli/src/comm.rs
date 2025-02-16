@@ -8,6 +8,10 @@ use serialport::SerialPort;
 use totpvault_lib::{Message, StatusMsg, MSG_STATUS_MSG};
 
 pub fn check_status_msg(resp: Vec<u8>) -> Result<(), String> {
+    if resp.len() == 0 {
+        return Err("Response length is 0!".to_string());
+    }
+
     let resp_msg_type = resp[0];
     if resp_msg_type != MSG_STATUS_MSG {
         debug!("Expected a MSG_STATUS_MSG, but got type {} Raw = {:?}", resp_msg_type, resp);

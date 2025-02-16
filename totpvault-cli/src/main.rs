@@ -7,6 +7,7 @@ use crate::dev::TotpvaultDev;
 
 mod dev;
 mod comm;
+mod tests;
 
 #[derive(Parser)]
 #[command(name = "TOTPVault CLI")]
