@@ -2,8 +2,8 @@ use std::fmt::Debug;
 use std::io::Read;
 use std::time::Duration;
 use log::debug;
-use rmp_serde::Serializer;
-use serde::Serialize;
+use rmp_serde::{Serializer};
+use serde::{Serialize};
 use serialport::SerialPort;
 use totpvault_lib::{Message, StatusMsg, MSG_STATUS_MSG};
 

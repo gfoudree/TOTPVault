@@ -10,12 +10,11 @@ use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use chrono::Utc;
 use log::{debug, info};
-use rand::RngCore;
 use serialport::{SerialPortType};
 use sha2::{Digest, Sha256};
 use crate::*;
 use totpvault_lib::*;
-use crate::totpvault_comm::{check_status_msg, send_command, send_message};
+use crate::comm::{check_status_msg, send_command, send_message};
 use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 
 pub struct TotpvaultDev {
@@ -35,10 +34,12 @@ impl TotpvaultDev {
     }
 
     pub fn get_remaining_totp_ticks() -> f64 {
+        // Window is 30s
         let ts = Utc::now();
         (30 - (ts.timestamp() % 30)) as f64
     }
 
+    // Create SHA256 hash of base64-encoded public key
     pub fn public_key_to_hash(b64_publickey: &str) -> Result<String, String> {
         let decoded = BASE64_STANDARD.decode(b64_publickey).map_err(|e| e.to_string())?;
         let digest = Sha256::digest(decoded);
@@ -113,7 +114,7 @@ impl TotpvaultDev {
 
         Ok(msg)
     }
-    
+
     pub fn list_stored_credentials(dev_path: &str) -> Result<Vec<CredentialInfo>, String> {
         let resp = send_command(dev_path, CMD_LIST)?;
         if resp[0] == MSG_LIST_CREDS {
@@ -129,7 +130,7 @@ impl TotpvaultDev {
             }
         }
     }
-    
+
     pub fn get_totp_code(dev_path: &str, domain_name: &str) -> Result<String, String> {
         let resp = send_message(dev_path, DisplayCodeMsg{domain_name: domain_name.to_string()}, CMD_DISPLAY_CODE)?;
         if resp[0] == MSG_TOTP_CODE {
@@ -145,7 +146,7 @@ impl TotpvaultDev {
             }
         }
     }
-    
+
     pub fn add_credential(dev_path: &str, domain_name: &str, totp_secret: &str) -> Result<(), String> {
         match send_message(dev_path, CreateEntryMsg{domain_name: domain_name.to_string(), totp_secret: totp_secret.to_string()}, CMD_CREATE) {
             Ok(_) => Ok(()),
@@ -192,18 +193,18 @@ impl TotpvaultDev {
 
     pub fn attest_device(dev_path: &str, pub_key_b64: &str) -> Result<(), String> {
         // Decode public key
-        let pub_key = base64::decode(pub_key_b64).map_err(|e| format!("Error decoding public key: {}", e))?;
+        let pub_key = BASE64_STANDARD.decode(pub_key_b64).map_err(|e| format!("Error decoding public key: {}", e))?;
         let pub_key_bytes: [u8; 32] = pub_key.try_into().map_err(|_| "Public key not proper length!")?;
 
         // Generate random challenge
         let random_bytes: [u8; 64] = rand::random();
-        let random_bytes_encoded = base64::encode(&random_bytes);
+        let random_bytes_encoded = BASE64_STANDARD.encode(&random_bytes);
 
         let resp = send_message(dev_path, AuthenticateChallengeMsg{nonce_challenge: random_bytes_encoded}, CMD_ATTEST)?;
         if resp[0] == MSG_ATTESTATION_RESPONSE {
             let attestation_resp_msg: AttestationResponseMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
             // Check the attestation message
-            let attestation_reply_bytes = base64::decode(attestation_resp_msg.message).map_err(|e| e.to_string())?;
+            let attestation_reply_bytes = BASE64_STANDARD.decode(attestation_resp_msg.message).map_err(|e| e.to_string())?;
 
             debug!("Attestation:\nChallenge: {}\nResponse: {}\nDevice ED25519 Pubkey: {}", hex::encode(random_bytes.clone()), hex::encode(attestation_reply_bytes.clone()), hex::encode(pub_key_bytes.clone()));
             Self::ed25519_verify_signature(&pub_key_bytes, random_bytes.as_slice(), &attestation_reply_bytes)

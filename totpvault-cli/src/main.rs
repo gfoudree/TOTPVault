@@ -3,10 +3,10 @@ use totpvault_lib::SystemInfoMsg;
 use colored::Colorize;
 use env_logger::Builder;
 use zeroize::Zeroize;
-use crate::totpvault_dev::TotpvaultDev;
+use crate::dev::TotpvaultDev;
 
-mod totpvault_dev;
-mod totpvault_comm;
+mod dev;
+mod comm;
 
 #[derive(Parser)]
 #[command(name = "TOTPVault CLI")]
@@ -67,12 +67,12 @@ struct DomainArgs {
 
 fn get_device(cli: &Cli) -> Result<String, ()> {
     if let Some(device) = cli.device.clone() {
-        return Ok(device);
+        Ok(device)
     } else {
         if let Ok(device) = TotpvaultDev::find_device() {
-            return Ok(device);
+            Ok(device)
         } else {
-            return Err(());
+            Err(())
         }
     }
 }
@@ -88,8 +88,13 @@ fn dump_device_status(device_status: &SystemInfoMsg) {
         false => format!("{} {}", device_status.current_timestamp, "(Out-of-Sync)".red().bold()),
     };
 
+
     println!("Device Status:\n\tVault: {}\n\tTotal Slots: {}\n\tUsed Slots: {}\n\tFree Slots: {}\n\tCurrent Timestamp: {}\n\tVersion: {}\n\tPublic Key: {}", locked_msg, device_status.total_slots, device_status.used_slots,
     device_status.free_slots, timestamp_msg, device_status.version_str, device_status.public_key);
+
+    if let Ok(hash) = TotpvaultDev::public_key_to_hash(&device_status.public_key) {
+        println!("\tKey Fingerprint: {}", hash);
+    }
 }
 fn main() {
     let cli = Cli::parse();
@@ -127,7 +132,12 @@ fn main() {
                 Err(error) => eprintln!("Error listing stored credentials. {}", error),
             }
         }
-        Commands::DeleteCredential(args) => todo!("Deleting credential for domain: {}", args.domain_name),
+        Commands::DeleteCredential(args) => {
+            match TotpvaultDev::delete_credential(device, args.domain_name.as_str()) {
+                Ok(_) => println!("Successfully deleted credential"),
+                Err(error) => eprintln!("Error deleting credential \"{}\": {}", args.domain_name, error),
+            }
+        }
         Commands::AddCredential(args) => {
             let mut totp_secret = rpassword::prompt_password("Enter TOTP Secret Key: ").unwrap();
             match TotpvaultDev::add_credential(device, args.domain_name.as_str(), totp_secret.as_str()) {
@@ -142,7 +152,7 @@ fn main() {
                     let time_remaining = TotpvaultDev::get_remaining_totp_ticks();
                     println!("{}\t{}s remaining", totp_code, time_remaining);
                 }
-            Err(error) => eprintln!("Error getting TOTP code for {}: {}", args.domain_name, error),
+                Err(error) => eprintln!("Error getting TOTP code for {}: {}", args.domain_name, error),
             }
         }
         Commands::InitVault => {
@@ -182,7 +192,7 @@ fn main() {
                             Err(error) => eprintln!("Error attesting device: {}", error),
                         }
                 },
-                Err(e) => eprintln!("Unable to get device status from: {}\n\tError = {}", device, e),
+                Err(error) => eprintln!("Unable to get device status from: {}\n\tError = {}", device, error),
             }
         }
         Commands::ListDevices => {
