@@ -164,7 +164,11 @@ fn main() {
             if response.to_lowercase().trim() == "yes" {
                 let mut p1 = rpassword::prompt_password("Enter vault password: ").unwrap();
                 let mut p2 = rpassword::prompt_password("Enter vault password (confirm): ").unwrap();
-                if p1 == p2 {
+
+                if p1.len() == 0 || p2.len() == 0 {
+                    eprintln!("Did not enter a password");
+                }
+                else if p1 == p2 {
                     match TotpvaultDev::init_vault(&device, &p1) {
                         Ok(_) => println!("Successfully initialized vault!"),
                         Err(error) => eprintln!("Error initializing vault: {}", error),
@@ -206,10 +210,16 @@ fn main() {
         Commands::UnlockVault => {
             let mut password = rpassword::prompt_password("Enter password: ").unwrap();
 
-            match TotpvaultDev::unlock_vault(device, &password) {
-                Ok(_) => println!("Successfully unlocked vault"),
-                Err(error) => eprintln!("Error unlocking vault\n\tError = {}", error),
+            if password.len() == 0 {
+                eprintln!("Did not enter a password");
             }
+            else {
+                match TotpvaultDev::unlock_vault(device, &password) {
+                    Ok(_) => println!("Successfully unlocked vault"),
+                    Err(error) => eprintln!("Error unlocking vault\n\tError = {}", error),
+                }
+            }
+            
             password.zeroize();
         }
         Commands::LockVault => {

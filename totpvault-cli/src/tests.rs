@@ -2,9 +2,10 @@ use crate::dev::TotpvaultDev;
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+    use rand_latest::RngCore;
     use rand_older::rngs::OsRng;
     use rmp_serde::to_vec;
-    use totpvault_lib::{StatusMsg, MSG_STATUS_MSG};
+    use totpvault_lib::{StatusMsg, MAX_PW_LEN, MSG_STATUS_MSG};
     use crate::comm::check_status_msg;
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
@@ -174,5 +175,95 @@ mod tests {
     fn test_message_with_only_type_byte() {
         let result = check_status_msg(vec![MSG_STATUS_MSG]);
         assert!(result.is_err()); // Should fail due to missing payload
+    }
+
+    // Hardware tests
+    #[test]
+    fn test_hw_init_vault() {
+        let dev = TotpvaultDev::find_device().unwrap();
+        let valid_pw = "password12345!";
+        //let mut totp_secret_bytes = [0u8; 32];
+        //rand_latest::rng().fill_bytes(&mut totp_secret_bytes);
+        let valid_totp_secret = "HVR4CFHAFOWFGGFAGSA5JVTIMMPG6GMT";
+
+        // Test with invalid password
+        assert!(TotpvaultDev::init_vault(&dev, "pass").is_err());
+        assert!(TotpvaultDev::init_vault(&dev, "").is_err());
+        assert!(TotpvaultDev::init_vault(&dev, "a".repeat(MAX_PW_LEN+10).as_str()).is_err());
+
+        // Create with valid password
+        TotpvaultDev::init_vault(&dev, valid_pw).unwrap();
+
+        // Check that all options are blocked when the vault is locked
+        assert!(TotpvaultDev::list_stored_credentials(&dev).is_err());
+        assert!(TotpvaultDev::add_credential(&dev, "google.com", valid_totp_secret).is_err());
+        assert!(TotpvaultDev::sync_time(&dev).is_err());
+        assert!(TotpvaultDev::delete_credential(&dev, "google.com").is_err());
+        assert!(TotpvaultDev::get_totp_code(&dev, "google.com").is_err());
+
+        // Check that specific options are allowed even if it's locked: Status
+
+            let mut status = TotpvaultDev::get_device_status(&dev).unwrap();
+            assert_eq!(status.vault_unlocked, false);
+
+            // Check that slot usage is correct after formatting (used/free is hidden if locked)
+            assert_eq!(status.used_slots, 0);
+            assert_eq!(status.free_slots, 0);
+            assert_eq!(status.total_slots, 128);
+            assert!(status.public_key.len() > 16);
+            assert!(status.version_str.contains("Version"));
+            assert!(status.current_timestamp > 1);
+
+
+        // Unlock vault
+        assert!(TotpvaultDev::unlock_vault(&dev, "pass").is_err());
+        assert!(TotpvaultDev::unlock_vault(&dev, "").is_err());
+        assert!(TotpvaultDev::unlock_vault(&dev, "a".repeat(MAX_PW_LEN+10).as_str()).is_err());
+        TotpvaultDev::unlock_vault(&dev, valid_pw).unwrap();
+
+        status = TotpvaultDev::get_device_status(&dev).unwrap();
+            assert_eq!(status.vault_unlocked, true);
+            assert_eq!(status.used_slots, 0);
+            assert_eq!(status.free_slots, 128);
+            assert_eq!(status.total_slots, status.free_slots);
+            assert!(status.public_key.len() > 16);
+            assert!(status.version_str.contains("Version"));
+            assert!(status.current_timestamp > 1);
+
+
+        // Test lock -> unlock
+        assert!(TotpvaultDev::lock_vault(&dev).is_ok());
+         status = TotpvaultDev::get_device_status(&dev).unwrap();
+            assert_eq!(status.vault_unlocked, false);
+
+        TotpvaultDev::unlock_vault(&dev, valid_pw).unwrap();
+
+        status = TotpvaultDev::get_device_status(&dev).unwrap();
+            assert_eq!(status.vault_unlocked, true);
+
+
+        /*
+        // Test creating items
+        assert!(TotpvaultDev::list_stored_credentials(&dev).unwrap().is_empty());
+        assert!(TotpvaultDev::add_credential(&dev, "g", valid_totp_secret).is_err());
+        assert!(TotpvaultDev::add_credential(&dev, "g".repeat(512).as_str(), valid_totp_secret).is_err());
+        assert!(TotpvaultDev::add_credential(&dev, "", valid_totp_secret).is_err());
+        assert!(TotpvaultDev::add_credential(&dev, "google.com", "").is_err());
+        assert!(TotpvaultDev::add_credential(&dev, "google.com", "a".repeat(512).as_str()).is_err());
+
+        // Make valid items
+        for i in 0..128 {
+            TotpvaultDev::add_credential(&dev, format!("test{}.com", i).as_str(), valid_totp_secret).unwrap();
+            let creds = TotpvaultDev::list_stored_credentials(&dev).unwrap();
+            assert_eq!(creds.len(), i + 1);
+            status = TotpvaultDev::get_device_status(&dev).unwrap();
+            assert_eq!(status.used_slots, i as u8 + 1);
+            assert_eq!(status.free_slots, 128 - (i as u8 + 1));
+        }
+
+        // Now the device is full, make sure adding an item fails
+        assert!(TotpvaultDev::add_credential(&dev, "test_too_full.com", valid_totp_secret).is_err());
+        
+         */
     }
 }

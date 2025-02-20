@@ -190,7 +190,9 @@ impl Message for InitVaultMsg {
             print_debug_msg(format!("Password length is > {} or < {} bytes!", MAX_PW_LEN, MIN_PW_LEN));
             return false;
         }
-        true
+        // Check if password is valid ASCII
+        self.password.chars().all(|c| c.is_ascii())
+
     }
     fn message_type_byte(&self) -> u8 { CMD_INIT_VAULT }
 }

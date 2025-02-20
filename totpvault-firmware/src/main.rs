@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use chrono::Utc;
 use credential::{Credential, MAX_CREDENTIALS};
 use crypto::{get_ed25519_public_key_nvs, sign_challenge, gen_ed25519_keypair, gen_salt};
@@ -80,6 +81,8 @@ impl System {
         if !init_msg.validate() {
             return Err("Invalid InitVault message".to_string());
         }
+
+        self.vault_unlocked = false;
 
         // Generate encryption salt and store it in the database
         let salt = gen_salt();
@@ -315,9 +318,12 @@ impl System {
     }
 }
 
-pub fn send_message<T: Message + Serialize>(uart: &mut uart::UartDriver, msg: &T) {
+pub fn send_message<T: Message + Serialize + Debug>(uart: &mut uart::UartDriver, msg: &T) {
     let mut buf = Vec::new();
     buf.push(msg.message_type_byte()); // Add the message type byte to the beginning
+
+    #[cfg(debug_assertions)]
+    println!("send_message: {:?}", msg);
 
     // Add the remaining bytes into the buffer
     let m = msg.serialize(&mut Serializer::new(&mut buf));
@@ -392,7 +398,8 @@ fn main() {
                             match Credential::list_credentials(&sys.key) {
                                 Ok(creds) => {
                                     // Transform them into CredentialListMsg
-                                    let cred_list_msg = CredentialListMsg { credentials: creds.iter().map(|cred| CredentialInfo { domain_name: cred.domain_name.clone(), slot_id: cred.slot_id }).collect() };
+                                    let creds_vec = creds.iter().map(|cred| CredentialInfo { domain_name: cred.domain_name.clone(), slot_id: cred.slot_id }).collect();
+                                    let cred_list_msg = CredentialListMsg { credentials: creds_vec };
                                     send_message(&mut uart, &cred_list_msg);
                                 }
                                 Err(e) => send_response_message(&mut uart, e.as_str(), true),

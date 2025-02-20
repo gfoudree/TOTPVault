@@ -122,6 +122,7 @@ impl TotpvaultDev {
     pub fn list_stored_credentials(dev_path: &str) -> Result<Vec<CredentialInfo>, String> {
         let resp = send_command(dev_path, CMD_LIST)?;
         if resp[0] == MSG_LIST_CREDS {
+            println!("{:?}", resp);
             let cred_list_msg: CredentialListMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
             Ok(cred_list_msg.credentials)
         } else {
@@ -152,26 +153,17 @@ impl TotpvaultDev {
     }
 
     pub fn add_credential(dev_path: &str, domain_name: &str, totp_secret: &str) -> Result<(), String> {
-        match send_message(dev_path, CreateEntryMsg{domain_name: domain_name.to_string(), totp_secret: totp_secret.to_string()}, CMD_CREATE) {
-            Ok(_) => Ok(()),
-            Err(e) =>  {
-                debug!("Error adding TOTP credential: {}", e);
-                Err("Failed to create credential! Try with -v for more info".to_string())
-            }
-        }
+        let resp = send_message(dev_path, CreateEntryMsg{domain_name: domain_name.to_string(), totp_secret: totp_secret.to_string()}, CMD_CREATE)?;
+        check_status_msg(resp)
     }
     pub fn delete_credential(dev_path: &str, domain_name: &str) -> Result<(), String> {
-        match send_message(dev_path, DeleteEntryMsg{domain_name: domain_name.to_string()}, CMD_DELETE) {
-            Ok(_) => Ok(()),
-            Err(_) => Err("Failed to delete credential! Try with -v for more info".to_string())
-        }
+        let resp =  send_message(dev_path, DeleteEntryMsg{domain_name: domain_name.to_string()}, CMD_DELETE)?;
+        check_status_msg(resp)
     }
 
     pub fn unlock_vault(dev_path: &str, password: &str) -> Result<(), String> {
-        match send_message(dev_path, UnlockMsg{password: password.to_string()}, CMD_UNLOCK_VAULT) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("Failed to unlock the vault! Bad password? Err: {}", e))
-        }
+        let resp = send_message(dev_path, UnlockMsg{password: password.to_string()}, CMD_UNLOCK_VAULT)?;
+        check_status_msg(resp)
     }
 
     pub fn init_vault(dev_path: &str, password: &str) -> Result<(), String> {
