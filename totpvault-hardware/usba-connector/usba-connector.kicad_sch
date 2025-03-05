@@ -7488,7 +7488,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Custom:usb-PCB"
+		(property "Footprint" "Connector_USB:USB_A_Molex_48037-2200_Horizontal"
 			(at 237.49 68.58 0)
 			(effects
 				(font
