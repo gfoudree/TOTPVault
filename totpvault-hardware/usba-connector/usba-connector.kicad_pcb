@@ -117,9 +117,9 @@
 			(subtractmaskfromsilk no)
 			(outputformat 1)
 			(mirror no)
-			(drillshape 1)
+			(drillshape 0)
 			(scaleselection 1)
-			(outputdirectory "")
+			(outputdirectory "../../../../../../Downloads/pcborder/")
 		)
 	)
 	(net 0 "")
@@ -7341,6 +7341,17 @@
 			(uuid "e5be76da-4438-4a86-8fb3-94e157819dc4")
 		)
 		(embedded_fonts no)
+	)
+	(gr_rect
+		(start 98 41.5)
+		(end 103 46.5)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(fill yes)
+		(layer "B.SilkS")
+		(uuid "68d25591-1475-4590-8925-47f8d68e8813")
 	)
 	(gr_poly
 		(pts
