@@ -122,8 +122,8 @@ impl TotpvaultDev {
     pub fn list_stored_credentials(dev_path: &str) -> Result<Vec<CredentialInfo>, String> {
         let resp = send_command(dev_path, CMD_LIST)?;
         if resp[0] == MSG_LIST_CREDS {
-            println!("{:?}", resp);
-            let cred_list_msg: CredentialListMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
+            eprintln!("{:?}", resp);
+            let cred_list_msg: CredentialListMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| format!("Failed to deserialize CredentialListMsg: {}", e))?;
             Ok(cred_list_msg.credentials)
         } else {
             if resp[0] == MSG_STATUS_MSG {

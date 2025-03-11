@@ -4,7 +4,7 @@ use std::time::Duration;
 use log::debug;
 use rmp_serde::{Serializer};
 use serde::{Serialize};
-use serialport::SerialPort;
+use serialport::{ClearBuffer, SerialPort};
 use totpvault_lib::{Message, StatusMsg, MSG_STATUS_MSG};
 
 pub fn check_status_msg(resp: Vec<u8>) -> Result<(), String> {
@@ -27,7 +27,7 @@ pub fn check_status_msg(resp: Vec<u8>) -> Result<(), String> {
 }
 
 fn transmit_bytes(dev_path: &str, data: Vec<u8>) -> Result<Vec<u8>, String> {
-    let mut resp = [0; 1024];
+    let mut resp = [0; 2048];
     let mut port = serialport::new(dev_path, 115_200)
         .timeout(Duration::from_millis(10000))
         .open().map_err(|e| format!("Unable to open serial port {}: {}", dev_path, e))?;
@@ -35,17 +35,22 @@ fn transmit_bytes(dev_path: &str, data: Vec<u8>) -> Result<Vec<u8>, String> {
     // Before sending a message, clear read buffer
     empty_serial_buffer(&mut port, dev_path)?;
 
-    port.write(&data).map_err(|e| format!("Error writing to serial port {}: {}", dev_path, e))?;
+    let written_bytes = port.write(&data).map_err(|e| format!("Error writing to serial port {}: {}", dev_path, e))?;
+    if written_bytes != data.len() {
+        return Err("Could not write all the data to the serial port!".to_string());
+    }
 
-    port.read(&mut resp).map_err(|e| format!("Error reading from serial port {}: {}", dev_path, e))?;
-    Ok(resp.to_vec())
+    // MUST wait some time for ESP32 to complete and send a response, otherwise we'll have truncated data and strange errors
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let read_bytes = port.read(&mut resp[..]).map_err(|e| format!("Error reading from serial port {}: {}", dev_path, e))?;
+    Ok(Vec::from(&resp[0..read_bytes])) // Trim response array to size of read bytes otherwise returned vector is always 2k
 }
 
 pub fn send_command(dev_path: &str, command: u8) -> Result<Vec<u8>, String> {
     let data: Vec<u8> = vec![command];
     transmit_bytes(dev_path, data)
 }
-
 
 pub fn send_message<T: Serialize + Debug + Message>(dev_path: &str, message: T, command: u8) -> Result<Vec<u8>, String> {
     let mut data = vec![command];
@@ -65,7 +70,7 @@ pub fn send_message<T: Serialize + Debug + Message>(dev_path: &str, message: T, 
 }
 
 fn empty_serial_buffer(port: &mut Box<dyn SerialPort>, dev_path: &str) -> Result<(), String> {
-    let mut resp = [0; 1024];
+    let mut resp = [0; 4096];
     let mut avail_bytes = port.bytes_to_read().map_err(|e| format!("Unable to check available bytes on serial port {}: {}", dev_path, e))?;
     while avail_bytes > 0 {
         port.read(&mut resp).map_err(|e| format!("Error reading from serial port {}: {}", dev_path, e))?;

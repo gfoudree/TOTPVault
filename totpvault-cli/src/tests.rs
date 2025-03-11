@@ -209,7 +209,7 @@ mod tests {
             // Check that slot usage is correct after formatting (used/free is hidden if locked)
             assert_eq!(status.used_slots, 0);
             assert_eq!(status.free_slots, 0);
-            assert_eq!(status.total_slots, 128);
+            assert_eq!(status.total_slots, 64);
             assert!(status.public_key.len() > 16);
             assert!(status.version_str.contains("Version"));
             assert!(status.current_timestamp > 1);
@@ -224,7 +224,7 @@ mod tests {
         status = TotpvaultDev::get_device_status(&dev).unwrap();
             assert_eq!(status.vault_unlocked, true);
             assert_eq!(status.used_slots, 0);
-            assert_eq!(status.free_slots, 128);
+            assert_eq!(status.free_slots, 64);
             assert_eq!(status.total_slots, status.free_slots);
             assert!(status.public_key.len() > 16);
             assert!(status.version_str.contains("Version"));
@@ -242,8 +242,8 @@ mod tests {
             assert_eq!(status.vault_unlocked, true);
 
 
-        /*
-        // Test creating items
+
+        // Test creating invalid items
         assert!(TotpvaultDev::list_stored_credentials(&dev).unwrap().is_empty());
         assert!(TotpvaultDev::add_credential(&dev, "g", valid_totp_secret).is_err());
         assert!(TotpvaultDev::add_credential(&dev, "g".repeat(512).as_str(), valid_totp_secret).is_err());
@@ -252,18 +252,19 @@ mod tests {
         assert!(TotpvaultDev::add_credential(&dev, "google.com", "a".repeat(512).as_str()).is_err());
 
         // Make valid items
-        for i in 0..128 {
-            TotpvaultDev::add_credential(&dev, format!("test{}.com", i).as_str(), valid_totp_secret).unwrap();
+
+        for i in 0..64 {
+            let domain = format!("test{}.com", i as u8);
+            println!("{}", domain);
+            TotpvaultDev::add_credential(&dev, domain.as_str(), valid_totp_secret).unwrap();
             let creds = TotpvaultDev::list_stored_credentials(&dev).unwrap();
             assert_eq!(creds.len(), i + 1);
             status = TotpvaultDev::get_device_status(&dev).unwrap();
             assert_eq!(status.used_slots, i as u8 + 1);
-            assert_eq!(status.free_slots, 128 - (i as u8 + 1));
+            assert_eq!(status.free_slots, 64 - (i as u8 + 1));
         }
 
         // Now the device is full, make sure adding an item fails
         assert!(TotpvaultDev::add_credential(&dev, "test_too_full.com", valid_totp_secret).is_err());
-        
-         */
     }
 }
