@@ -42,3 +42,4 @@ fp-info-cache
 .idea
 target
 .gdb_history
+.aider*

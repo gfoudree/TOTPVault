@@ -1,15 +1,21 @@
-use crate::dev::TotpvaultDev;
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
-    use rand_latest::RngCore;
-    use rand_older::rngs::OsRng;
+    use rand_older::{rngs::OsRng};
     use rmp_serde::to_vec;
-    use totpvault_lib::{StatusMsg, MAX_PW_LEN, MSG_STATUS_MSG};
-    use crate::comm::check_status_msg;
-    // Note this useful idiom: importing names from outer (for mod tests) scope.
-    use super::*;
+    use totp_rs::{Secret, TOTP};
+    use totpvault_lib::{CreateEntryMsg, Message, StatusMsg, MAX_PW_LEN, MSG_STATUS_MSG};
+    use crate::{comm::check_status_msg, dev::TotpvaultDev};
 
+    fn init_vault(dev: &String) {
+        let valid_pw = "password12345!";
+        TotpvaultDev::init_vault(&dev, valid_pw).unwrap();
+    }
+    fn unlock_vault(dev: &String) {
+        let valid_pw = "password12345!";
+        TotpvaultDev::unlock_vault(&dev, valid_pw).unwrap();
+    }
+    
     #[test]
     fn test_public_key_to_hash_invalid_base64() {
         let invalid_public_key = "!!invalid_base64!!";
@@ -26,7 +32,6 @@ mod tests {
         let valid_key = "U29tZVZhbGlkUHVibGljS2V5";
         assert!(TotpvaultDev::public_key_to_hash(valid_key).is_ok());
     }
-
 
     #[test]
     fn test_valid_signature() {
@@ -111,9 +116,6 @@ mod tests {
                                                         &empty_field).is_err());
     }
 
-
-
-
     #[test]
     fn test_valid_success_status_msg() {
         let status_msg = StatusMsg {
@@ -180,11 +182,8 @@ mod tests {
     // Hardware tests
     #[test]
     fn test_hw_init_vault() {
-        let dev = TotpvaultDev::find_device().unwrap();
-        let valid_pw = "password12345!";
-        //let mut totp_secret_bytes = [0u8; 32];
-        //rand_latest::rng().fill_bytes(&mut totp_secret_bytes);
         let valid_totp_secret = "HVR4CFHAFOWFGGFAGSA5JVTIMMPG6GMT";
+        let dev = TotpvaultDev::find_device().unwrap();
 
         // Test with invalid password
         assert!(TotpvaultDev::init_vault(&dev, "pass").is_err());
@@ -192,7 +191,7 @@ mod tests {
         assert!(TotpvaultDev::init_vault(&dev, "a".repeat(MAX_PW_LEN+10).as_str()).is_err());
 
         // Create with valid password
-        TotpvaultDev::init_vault(&dev, valid_pw).unwrap();
+        init_vault(&dev);
 
         // Check that all options are blocked when the vault is locked
         assert!(TotpvaultDev::list_stored_credentials(&dev).is_err());
@@ -218,8 +217,9 @@ mod tests {
         // Unlock vault
         assert!(TotpvaultDev::unlock_vault(&dev, "pass").is_err());
         assert!(TotpvaultDev::unlock_vault(&dev, "").is_err());
+        assert!(TotpvaultDev::unlock_vault(&dev, "\x00").is_err());
         assert!(TotpvaultDev::unlock_vault(&dev, "a".repeat(MAX_PW_LEN+10).as_str()).is_err());
-        TotpvaultDev::unlock_vault(&dev, valid_pw).unwrap();
+        
 
         status = TotpvaultDev::get_device_status(&dev).unwrap();
             assert_eq!(status.vault_unlocked, true);
@@ -236,12 +236,13 @@ mod tests {
          status = TotpvaultDev::get_device_status(&dev).unwrap();
             assert_eq!(status.vault_unlocked, false);
 
-        TotpvaultDev::unlock_vault(&dev, valid_pw).unwrap();
+        unlock_vault(&dev);
 
         status = TotpvaultDev::get_device_status(&dev).unwrap();
             assert_eq!(status.vault_unlocked, true);
 
-
+        // Sync time
+        assert!(TotpvaultDev::sync_time(&dev).is_ok());
 
         // Test creating invalid items
         assert!(TotpvaultDev::list_stored_credentials(&dev).unwrap().is_empty());
@@ -250,9 +251,16 @@ mod tests {
         assert!(TotpvaultDev::add_credential(&dev, "", valid_totp_secret).is_err());
         assert!(TotpvaultDev::add_credential(&dev, "google.com", "").is_err());
         assert!(TotpvaultDev::add_credential(&dev, "google.com", "a".repeat(512).as_str()).is_err());
+        assert!(TotpvaultDev::list_stored_credentials(&dev).unwrap().is_empty());
+
+        // TODO: Test deleting entries
+
+        // TODO: Check adding duplicate entry
+
+        // TODO: Generate TOTP code for non-existent entry
+        // TODO: Delete non-existent entry
 
         // Make valid items
-
         for i in 0..64 {
             let domain = format!("test{}.com", i as u8);
             println!("{}", domain);
@@ -266,5 +274,42 @@ mod tests {
 
         // Now the device is full, make sure adding an item fails
         assert!(TotpvaultDev::add_credential(&dev, "test_too_full.com", valid_totp_secret).is_err());
+    }
+
+    #[test]
+    fn test_totp_validation_algorithm() {
+        for _ in  0..2048 {
+            let secret = Secret::generate_secret();
+            let b32_encoded_secret = secret.to_encoded().to_string();
+
+            let create_msg = CreateEntryMsg{domain_name: "google.com".to_string(), totp_secret: b32_encoded_secret};
+            assert!(create_msg.validate() == true);
+        }
+    }
+    
+    #[test]
+    fn test_hw_totp_code() {
+        let dev = TotpvaultDev::find_device().unwrap();
+        init_vault(&dev);
+        unlock_vault(&dev);
+        // Sync time
+        assert!(TotpvaultDev::sync_time(&dev).is_ok());
+
+        assert!(TotpvaultDev::list_stored_credentials(&dev).unwrap().is_empty());
+        for i in 0..5 {
+            let secret = Secret::generate_secret();
+            let b32_encoded_secret = secret.to_encoded().to_string();
+            let domain_name = format!("test{}.com", i);
+
+            // Add it to the vault
+            assert!(TotpvaultDev::add_credential(&dev, domain_name.as_str(), b32_encoded_secret.as_str()).is_ok());
+
+            // Retrieve TOTP code from the hardware device
+            let retrieved_totp_code = TotpvaultDev::get_totp_code(&dev, domain_name.as_str()).unwrap();
+            let totp = TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, secret.to_bytes().unwrap()).unwrap();
+
+            // Compare the TOTP codes
+            assert_eq!(totp.generate_current().unwrap(), retrieved_totp_code);
+        }
     }
 }

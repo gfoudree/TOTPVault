@@ -2,9 +2,9 @@ use std::fmt::Debug;
 use std::io::Read;
 use std::time::Duration;
 use log::debug;
-use rmp_serde::{Serializer};
-use serde::{Serialize};
-use serialport::{ClearBuffer, SerialPort};
+use rmp_serde::Serializer;
+use serde::Serialize;
+use serialport::SerialPort;
 use totpvault_lib::{Message, StatusMsg, MSG_STATUS_MSG};
 
 pub fn check_status_msg(resp: Vec<u8>) -> Result<(), String> {
