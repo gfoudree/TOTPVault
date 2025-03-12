@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use log::warn;
 use totpvault_lib::SystemInfoMsg;
 use colored::Colorize;
 use env_logger::Builder;
@@ -89,7 +90,6 @@ fn dump_device_status(device_status: &SystemInfoMsg) {
         false => format!("{} {}", device_status.current_timestamp, "(Out-of-Sync)".red().bold()),
     };
 
-
     println!("Device Status:\n\tVault: {}\n\tTotal Slots: {}\n\tUsed Slots: {}\n\tFree Slots: {}\n\tCurrent Timestamp: {}\n\tVersion: {}\n\tPublic Key: {}", locked_msg, device_status.total_slots, device_status.used_slots,
     device_status.free_slots, timestamp_msg, device_status.version_str, device_status.public_key);
 
@@ -128,7 +128,9 @@ fn main() {
         Commands::ListCredentials => {
             match TotpvaultDev::list_stored_credentials(device) {
                 Ok(credentials) => {
-                    println!("{:?}", credentials);
+                    for (i, cred) in credentials.iter().enumerate() {
+                        println!("[Slot {}]: {}", i, cred.domain_name.green());
+                    }
                 }
                 Err(error) => eprintln!("Error listing stored credentials. {}", error),
             }
@@ -149,11 +151,19 @@ fn main() {
         }
         Commands::TotpCode(args) => {
             match TotpvaultDev::get_totp_code(device, args.domain_name.as_str()) {
-                Ok(totp_code) => {
+                Ok(totp_msg) => {
+                    // Check if the device is in sync, warn the user if not
+                    if !TotpvaultDev::timesync_check(totp_msg.system_timestamp) {
+                        warn!("TOTPVault device time is not in sync! Codes will not be correct, sync with 'sync-time' command");
+                    }
                     let time_remaining = TotpvaultDev::get_remaining_totp_ticks();
-                    println!("{}\t{}s remaining", totp_code, time_remaining);
+                    if time_remaining < 5.0 {
+                        println!("{}\n{}s remaining", totp_msg.totp_code.green(), time_remaining.to_string().red());
+                    } else {
+                        println!("{}\n{}s remaining", totp_msg.totp_code.green(), time_remaining);
+                    }
                 }
-                Err(error) => eprintln!("Error getting TOTP code for {}: {}", args.domain_name, error),
+                Err(error) => eprintln!("{}: {}", args.domain_name, error),
             }
         }
         Commands::InitVault => {

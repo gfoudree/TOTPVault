@@ -95,6 +95,7 @@ pub struct CredentialListMsg {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TOTPCodeMsg {
     pub totp_code: String,
+    pub system_timestamp: u64, // Send the system timestamp so the host can verify if things are out of sync
 }
 
 #[derive(Serialize, Deserialize, Debug)]

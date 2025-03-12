@@ -57,7 +57,7 @@ pub fn send_message<T: Serialize + Debug + Message>(dev_path: &str, message: T, 
 
     // Validate message structure
     if !message.validate() {
-        return Err("Outbound message is not valid".to_string());
+        return Err("Command is not valid! Re-run with '-v' to see verbose information".to_string());
     }
 
     let mut buf: Vec<u8> = Vec::new();

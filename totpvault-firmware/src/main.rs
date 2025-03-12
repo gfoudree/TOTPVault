@@ -430,7 +430,7 @@ fn main() {
                         } else {
                             match sys.display_code(&buf) {
                                 Ok(totp_code) => {
-                                    let totp_code_msg = TOTPCodeMsg { totp_code: totp_code };
+                                    let totp_code_msg = TOTPCodeMsg { totp_code: totp_code, system_timestamp: Utc::now().timestamp() as u64 };
                                     send_message(&mut uart, &totp_code_msg);
                                 }
                                 Err(e) => send_response_message(&mut uart, format!("Error generating TOTP code: {}", e).as_str(), true),
