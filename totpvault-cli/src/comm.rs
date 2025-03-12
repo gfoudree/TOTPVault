@@ -7,6 +7,8 @@ use serde::Serialize;
 use serialport::SerialPort;
 use totpvault_lib::{Message, StatusMsg, MSG_STATUS_MSG};
 
+const DEFAULT_UART_DELAY: u64 = 1500;
+
 pub fn check_status_msg(resp: Vec<u8>) -> Result<(), String> {
     if resp.len() == 0 {
         return Err("Response length is 0!".to_string());
@@ -26,7 +28,7 @@ pub fn check_status_msg(resp: Vec<u8>) -> Result<(), String> {
     }
 }
 
-fn transmit_bytes(dev_path: &str, data: Vec<u8>) -> Result<Vec<u8>, String> {
+fn transmit_bytes(dev_path: &str, data: Vec<u8>, delay: Option<u64>) -> Result<Vec<u8>, String> {
     let mut resp = [0; 2048];
     let mut port = serialport::new(dev_path, 115_200)
         .timeout(Duration::from_millis(10000))
@@ -41,18 +43,18 @@ fn transmit_bytes(dev_path: &str, data: Vec<u8>) -> Result<Vec<u8>, String> {
     }
 
     // MUST wait some time for ESP32 to complete and send a response, otherwise we'll have truncated data and strange errors
-    std::thread::sleep(Duration::from_millis(1500));
+    std::thread::sleep(Duration::from_millis(delay.unwrap_or(DEFAULT_UART_DELAY)));
 
     let read_bytes = port.read(&mut resp[..]).map_err(|e| format!("Error reading from serial port {}: {}", dev_path, e))?;
     Ok(Vec::from(&resp[0..read_bytes])) // Trim response array to size of read bytes otherwise returned vector is always 2k
 }
 
-pub fn send_command(dev_path: &str, command: u8) -> Result<Vec<u8>, String> {
+pub fn send_command(dev_path: &str, command: u8, delay: Option<u64>) -> Result<Vec<u8>, String> {
     let data: Vec<u8> = vec![command];
-    transmit_bytes(dev_path, data)
+    transmit_bytes(dev_path, data, delay)
 }
 
-pub fn send_message<T: Serialize + Debug + Message>(dev_path: &str, message: T, command: u8) -> Result<Vec<u8>, String> {
+pub fn send_message<T: Serialize + Debug + Message>(dev_path: &str, message: T, command: u8, delay: Option<u64>) -> Result<Vec<u8>, String> {
     let mut data = vec![command];
 
     // Validate message structure
@@ -66,7 +68,7 @@ pub fn send_message<T: Serialize + Debug + Message>(dev_path: &str, message: T, 
     // Append to the outgoing bytes buffer
     data.extend(buf);
 
-    transmit_bytes(dev_path, data)
+    transmit_bytes(dev_path, data, delay)
 }
 
 fn empty_serial_buffer(port: &mut Box<dyn SerialPort>, dev_path: &str) -> Result<(), String> {

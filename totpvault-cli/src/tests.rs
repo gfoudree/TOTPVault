@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
     use rand_older::{rngs::OsRng};
     use rmp_serde::to_vec;
@@ -283,7 +284,7 @@ mod tests {
             let b32_encoded_secret = secret.to_encoded().to_string();
 
             let create_msg = CreateEntryMsg{domain_name: "google.com".to_string(), totp_secret: b32_encoded_secret};
-            assert!(create_msg.validate() == true);
+            assert_eq!(create_msg.validate(), true);
         }
     }
     
@@ -296,7 +297,7 @@ mod tests {
         assert!(TotpvaultDev::sync_time(&dev).is_ok());
 
         assert!(TotpvaultDev::list_stored_credentials(&dev).unwrap().is_empty());
-        for i in 0..5 {
+        for i in 0..15 {
             let secret = Secret::generate_secret();
             let b32_encoded_secret = secret.to_encoded().to_string();
             let domain_name = format!("test{}.com", i);
@@ -305,11 +306,14 @@ mod tests {
             assert!(TotpvaultDev::add_credential(&dev, domain_name.as_str(), b32_encoded_secret.as_str()).is_ok());
 
             // Retrieve TOTP code from the hardware device
-            let retrieved_totp_code = TotpvaultDev::get_totp_code(&dev, domain_name.as_str()).unwrap();
+            let mut retrieved_totp_code = TotpvaultDev::get_totp_code(&dev, domain_name.as_str()).unwrap();
+            // Check if we are out-of-sync
+            if ((Utc::now().timestamp() as u64 - retrieved_totp_code.system_timestamp) as i64).abs() > 1 {
+                assert!(TotpvaultDev::sync_time(&dev).is_ok()); // Sync time
+                retrieved_totp_code = TotpvaultDev::get_totp_code(&dev, domain_name.as_str()).unwrap(); // Get new value
+            }
             let totp = TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, secret.to_bytes().unwrap()).unwrap();
-
-            // Compare the TOTP codes
-            assert_eq!(totp.generate_current().unwrap(), retrieved_totp_code);
+            assert_eq!(totp.generate_current().unwrap(), retrieved_totp_code.totp_code);
         }
     }
 }
