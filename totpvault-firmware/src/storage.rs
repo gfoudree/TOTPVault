@@ -29,40 +29,6 @@ fn get_nvs_handle() -> Result<EspNvs<NvsDefault>, String> {
     Ok(nvs_h)
 }
 
-
-
-pub fn nvs_write_u8(key: &str, val: u8) -> Result<(), String> {
-    let nvs_h = get_nvs_handle()?;
-
-    match nvs_h.set_u8(key, val) {
-        Ok(_) => return Ok(()),
-        Err(e) => return Err(format!("Unable to set u8 {}. ESP error = {}", key, e))
-    }
-}
-
-pub fn nvs_read_u8(key: &str) -> Result<u8, String> {
-    let nvs_h = get_nvs_handle()?;
-
-    let val = match nvs_h.get_u8(key) {
-        Ok(Some(val)) => val,
-        Err(e) => {
-            return Err(format!(
-                "Unable to access blob. Database corrupted(?) please reset it. Err: {}",
-                e
-            ));
-        }
-        Ok(None) => {
-            return Err(
-                "Unable to access blob. Database corrupted(?) please reset it."
-                    .to_string(),
-            );
-        }
-    };
-
-    Ok(val)
-}
-
-
 pub fn nvs_write_blob(key: &str, val: &[u8]) -> Result<(), String> {
     let mut nvs_h = get_nvs_handle()?;
 

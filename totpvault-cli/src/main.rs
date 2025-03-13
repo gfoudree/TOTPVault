@@ -11,7 +11,7 @@ mod comm;
 mod tests;
 
 #[derive(Parser)]
-#[command(name = "TOTPVault CLI")]
+#[command(name = "totpvault-cli")]
 #[command(about = "CLI tool to manage TOTPVault", version = "1.0.0")]
 struct Cli {
     #[arg(short, long, global = true, required = false, help = "Verbose mode")]
@@ -46,7 +46,7 @@ enum Commands {
     DevInfo,
 
     #[command(about = "Perform device attestation")]
-    AttestDev,
+    AttestDev(PublicKeyArgs),
 
     #[command(about = "List connected devices")]
     ListDevices,
@@ -63,8 +63,14 @@ enum Commands {
 
 #[derive(Args)]
 struct DomainArgs {
-    #[arg(long)]
+    #[arg(short = 'd', long, required = true, help = "Domain name of the TOTP code to get")]
     domain_name: String,
+}
+
+#[derive(Args)]
+struct PublicKeyArgs {
+    #[arg(short = 'k', long, required = false, help = "Public key of the device to attest")]
+    public_key: Option<String>,
 }
 
 fn get_device(cli: &Cli) -> Result<String, ()> {
@@ -198,16 +204,25 @@ fn main() {
                 Err(error) => eprintln!("Unable to get device status from: {}\n\tError = {}", device, error),
             }
         }
-        Commands::AttestDev => {
-            match TotpvaultDev::get_device_status(device) {
-                Ok(device_status) => {
-                    let pub_key_b64 = device_status.public_key;
-                        match TotpvaultDev::attest_device(device, pub_key_b64.as_str()) {
-                            Ok(_) => println!("Successfully attested device"),
-                            Err(error) => eprintln!("Error attesting device: {}", error),
+        Commands::AttestDev(args) => {
+            let pub_key_b64 = match args.public_key {
+                Some(key) => key,
+                None => {
+                    println!("No key specified, getting public key from device...");
+                    match TotpvaultDev::get_device_status(device) {
+                        Ok(device_status) => device_status.public_key,
+                        Err(error) => {
+                            eprintln!("Unable to get device status from: {}\n\tError = {}", device, error);
+                            return;
                         }
-                },
-                Err(error) => eprintln!("Unable to get device status from: {}\n\tError = {}", device, error),
+                    }
+                }
+            };
+
+            println!("Public key: {}\nFingerprint: {}", pub_key_b64, TotpvaultDev::public_key_to_hash(&pub_key_b64).unwrap());
+            match TotpvaultDev::attest_device(device, &pub_key_b64) {
+                Ok(_) => println!("{}", "Successfully attested device".green()),
+                Err(error) => eprintln!("Error attesting device: {}", error),
             }
         }
         Commands::ListDevices => {

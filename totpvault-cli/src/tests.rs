@@ -1,13 +1,16 @@
 #[cfg(test)]
 mod tests {
+    use base64::Engine;
+    use base64::prelude::BASE64_STANDARD;
     use chrono::Utc;
     use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
     use rand_latest::Rng;
     use rand_older::{rngs::OsRng};
-    use rmp_serde::to_vec;
+    use rmp_serde::{to_vec};
     use totp_rs::{Secret, TOTP};
-    use totpvault_lib::{CreateEntryMsg, Message, StatusMsg, MAX_PW_LEN, MSG_STATUS_MSG};
+    use totpvault_lib::{AuthenticateChallengeMsg, CreateEntryMsg, Message, StatusMsg, CMD_ATTEST, MAX_PW_LEN, MSG_STATUS_MSG};
     use crate::{comm::check_status_msg, dev::TotpvaultDev};
+    use crate::comm::send_message;
 
     fn init_vault(dev: &String) {
         let valid_pw = "password12345!";
@@ -203,26 +206,24 @@ mod tests {
         assert!(TotpvaultDev::get_totp_code(&dev, "google.com").is_err());
 
         // Check that specific options are allowed even if it's locked: Status
+        let mut status = TotpvaultDev::get_device_status(&dev).unwrap();
+        assert_eq!(status.vault_unlocked, false);
 
-            let mut status = TotpvaultDev::get_device_status(&dev).unwrap();
-            assert_eq!(status.vault_unlocked, false);
-
-            // Check that slot usage is correct after formatting (used/free is hidden if locked)
-            assert_eq!(status.used_slots, 0);
-            assert_eq!(status.free_slots, 0);
-            assert_eq!(status.total_slots, 64);
-            assert!(status.public_key.len() > 16);
-            assert!(status.version_str.contains("Version"));
-            assert!(status.current_timestamp > 1);
-
-
+        // Check that slot usage is correct after formatting (used/free is hidden if locked)
+        assert_eq!(status.used_slots, 0);
+        assert_eq!(status.free_slots, 0);
+        assert_eq!(status.total_slots, 64);
+        assert!(status.public_key.len() > 16);
+        assert!(status.version_str.contains("Version"));
+        assert!(status.current_timestamp > 1);
+        
         // Unlock vault
         assert!(TotpvaultDev::unlock_vault(&dev, "pass").is_err());
         assert!(TotpvaultDev::unlock_vault(&dev, "").is_err());
         assert!(TotpvaultDev::unlock_vault(&dev, "\x00").is_err());
         assert!(TotpvaultDev::unlock_vault(&dev, "a".repeat(MAX_PW_LEN+10).as_str()).is_err());
         
-
+        assert!(TotpvaultDev::unlock_vault(&dev, "password12345!").is_ok());
         status = TotpvaultDev::get_device_status(&dev).unwrap();
             assert_eq!(status.vault_unlocked, true);
             assert_eq!(status.used_slots, 0);
@@ -255,13 +256,6 @@ mod tests {
         assert!(TotpvaultDev::add_credential(&dev, "google.com", "a".repeat(512).as_str()).is_err());
         assert!(TotpvaultDev::list_stored_credentials(&dev).unwrap().is_empty());
 
-        // TODO: Test deleting entries
-
-        // TODO: Check adding duplicate entry
-
-        // TODO: Generate TOTP code for non-existent entry
-        // TODO: Delete non-existent entry
-
         // Make valid items
         for i in 0..64 {
             let domain = format!("test{}.com", i as u8);
@@ -274,6 +268,25 @@ mod tests {
             assert_eq!(status.free_slots, 64 - (i as u8 + 1));
         }
 
+        // Test adding duplicate entries
+        assert!(TotpvaultDev::add_credential(&dev, "test0.com", valid_totp_secret).is_err());
+
+        // Test deleting entries
+        {
+            assert!(TotpvaultDev::delete_credential(&dev, "test0.com").is_ok());
+            // Check that test0.com is gone
+            let post_delete_creds = TotpvaultDev::list_stored_credentials(&dev).unwrap();
+            for cred in post_delete_creds {
+                assert_ne!(cred.domain_name, "test0.com");
+            }
+            // Check if we try and delete a non-existent entry
+            assert!(TotpvaultDev::delete_credential(&dev, "test0.com").is_err());
+            assert!(TotpvaultDev::get_totp_code(&dev, "test0.com").is_err());
+            // Check that we can add it again
+            assert!(TotpvaultDev::add_credential(&dev, "test0.com", valid_totp_secret).is_ok());
+            assert!(TotpvaultDev::get_totp_code(&dev, "test0.com").is_ok());
+        }
+        
         // Now the device is full, make sure adding an item fails
         assert!(TotpvaultDev::add_credential(&dev, "test_too_full.com", valid_totp_secret).is_err());
     }
@@ -289,6 +302,38 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_hw_attestation() {
+        let dev = TotpvaultDev::find_device().unwrap();
+        init_vault(&dev);
+        unlock_vault(&dev);
+        // Sync time
+        assert!(TotpvaultDev::sync_time(&dev).is_ok());
+
+        // Test too short of a public key
+        let test_pub_key = [1u8; 16]; // Too short
+        let pub_key_b64 = BASE64_STANDARD.encode(&test_pub_key);
+        let result = TotpvaultDev::attest_device(dev.as_str(), &pub_key_b64);
+        assert!(result.is_err());
+
+        // Test too short challenges
+        for c in [0, 1, 10] {
+            let mut random_bytes = Vec::with_capacity(c);
+            rand_latest::fill(random_bytes.as_mut_slice());
+
+            let random_bytes_encoded = BASE64_STANDARD.encode(&random_bytes);
+
+            assert!(send_message(dev.as_str(), AuthenticateChallengeMsg{nonce_challenge: random_bytes_encoded}, CMD_ATTEST, Some(2000)).is_err());
+        }
+
+        // Test with incorrect public key
+        let incorrect_public_key = "1EfTKDTSnPWohuhbddiruUbIaZcgou5YPYMDR2lW94Q=";
+        assert!(TotpvaultDev::attest_device(&dev, &incorrect_public_key).is_err());
+
+        // Test with correct public key
+        let correct_public_key = TotpvaultDev::get_device_status(&dev).unwrap().public_key;
+        assert!(TotpvaultDev::attest_device(&dev, &correct_public_key).is_ok());
+    }
     #[test]
     fn test_hw_totp_code() {
         use std::{thread, time::Duration};
@@ -352,7 +397,6 @@ mod tests {
                         assert_eq!(expected_code, retrieved_totp_code.totp_code); // Fail if it's wrong again
                     }
                 }
-
             }
         }
     }

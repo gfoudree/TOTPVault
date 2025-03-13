@@ -1,4 +1,6 @@
 use std::fmt::Debug;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use chrono::Utc;
 use credential::{Credential, MAX_CREDENTIALS};
 use crypto::{get_ed25519_public_key_nvs, sign_challenge, gen_ed25519_keypair, gen_salt};
@@ -127,7 +129,7 @@ impl System {
             return Err("Invalid AuthenticateChallenge message".to_string());
         }
 
-        let challenge_bytes_vec  = base64::decode(challenge_msg.nonce_challenge.clone()).
+        let challenge_bytes_vec  = BASE64_STANDARD.decode(challenge_msg.nonce_challenge.clone()).
             map_err(|_| "Invalid AuthenticateChallenge message")?;
 
         let challenge_bytes: [u8; NONCE_CHALLENGE_LEN] = challenge_bytes_vec.try_into().
@@ -135,7 +137,7 @@ impl System {
 
         match sign_challenge(&challenge_bytes) {
             Ok(sig) => {
-                let signature_encoded = base64::encode(sig.to_vec());
+                let signature_encoded = BASE64_STANDARD.encode(sig.to_vec());
                 #[cfg(debug_assertions)] {
                     println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_ed25519_public_key_nvs()?, challenge_msg.nonce_challenge, signature_encoded);
                 }

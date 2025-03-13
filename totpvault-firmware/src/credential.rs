@@ -5,7 +5,7 @@ use totp_rs;
 use zeroize::Zeroize;
 use totpvault_lib;
 
-pub const MAX_CREDENTIALS: u8 = 128;
+pub const MAX_CREDENTIALS: u8 = 64;
 
 #[derive(Serialize, Deserialize, Debug)]
 
