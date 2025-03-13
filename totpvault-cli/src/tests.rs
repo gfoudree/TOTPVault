@@ -2,6 +2,7 @@
 mod tests {
     use chrono::Utc;
     use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+    use rand_latest::Rng;
     use rand_older::{rngs::OsRng};
     use rmp_serde::to_vec;
     use totp_rs::{Secret, TOTP};
@@ -287,17 +288,21 @@ mod tests {
             assert_eq!(create_msg.validate(), true);
         }
     }
-    
+
     #[test]
     fn test_hw_totp_code() {
+        use std::{thread, time::Duration};
+
         let dev = TotpvaultDev::find_device().unwrap();
         init_vault(&dev);
         unlock_vault(&dev);
         // Sync time
         assert!(TotpvaultDev::sync_time(&dev).is_ok());
-
         assert!(TotpvaultDev::list_stored_credentials(&dev).unwrap().is_empty());
-        for i in 0..15 {
+
+        // First phase: Create all credential entries
+        let mut credentials = Vec::with_capacity(25);
+        for i in 0..25 {
             let secret = Secret::generate_secret();
             let b32_encoded_secret = secret.to_encoded().to_string();
             let domain_name = format!("test{}.com", i);
@@ -305,15 +310,50 @@ mod tests {
             // Add it to the vault
             assert!(TotpvaultDev::add_credential(&dev, domain_name.as_str(), b32_encoded_secret.as_str()).is_ok());
 
-            // Retrieve TOTP code from the hardware device
-            let mut retrieved_totp_code = TotpvaultDev::get_totp_code(&dev, domain_name.as_str()).unwrap();
-            // Check if we are out-of-sync
-            if ((Utc::now().timestamp() as u64 - retrieved_totp_code.system_timestamp) as i64).abs() > 1 {
-                assert!(TotpvaultDev::sync_time(&dev).is_ok()); // Sync time
-                retrieved_totp_code = TotpvaultDev::get_totp_code(&dev, domain_name.as_str()).unwrap(); // Get new value
+            // Store the domain and secret for later verification
+            println!("Adding {}: {}", domain_name, b32_encoded_secret);
+            credentials.push((domain_name, secret));
+        }
+
+        println!("Adding entries complete!");
+        // Second phase: Retrieve and verify TOTP codes with random delays
+        let mut rng = rand_latest::rng();
+
+        // 50 passes of checking TOTP codes
+        for i in 0..50 {
+            // Random delay between 1 and 35 seconds to catch window rollovers
+            let delay_seconds = rng.random_range(1..=35);
+            println!("[Pass {}]: Waiting for {} seconds before checking", i, delay_seconds);
+            thread::sleep(Duration::from_secs(delay_seconds));
+            for (domain_name, secret) in &credentials {
+
+                // Retrieve TOTP code from the hardware device
+                let mut retrieved_totp_code = TotpvaultDev::get_totp_code(&dev, domain_name.as_str()).unwrap();
+
+                // Check if we are out-of-sync and fix if needed
+                if ((Utc::now().timestamp() as u64 - retrieved_totp_code.system_timestamp) as i64).abs() > 1 {
+                    println!("Time out of sync, re-syncing for {}", domain_name);
+                    assert!(TotpvaultDev::sync_time(&dev).is_ok()); // Sync time
+                    retrieved_totp_code = TotpvaultDev::get_totp_code(&dev, domain_name.as_str()).unwrap(); // Get new value
+                }
+
+                // Generate expected TOTP code
+                let totp = TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, secret.to_bytes().unwrap()).unwrap();
+                let mut expected_code = totp.generate_current().unwrap();
+
+                // Verify the TOTP code. If not equal, wait a second and try again to handle window boundry
+                if expected_code != retrieved_totp_code.totp_code {
+                    thread::sleep(Duration::from_secs(2));
+                    retrieved_totp_code = TotpvaultDev::get_totp_code(&dev, domain_name.as_str()).unwrap();
+                    expected_code = totp.generate_current().unwrap();
+
+                    if expected_code != retrieved_totp_code.totp_code {
+                        println!("{}", domain_name);
+                        assert_eq!(expected_code, retrieved_totp_code.totp_code); // Fail if it's wrong again
+                    }
+                }
+
             }
-            let totp = TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, secret.to_bytes().unwrap()).unwrap();
-            assert_eq!(totp.generate_current().unwrap(), retrieved_totp_code.totp_code);
         }
     }
 }
