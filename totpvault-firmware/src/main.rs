@@ -58,17 +58,30 @@ impl System {
             .flow_control(uart::config::FlowControl::None);
         let pins = peripherals.pins;
 
-        let uart: uart::UartDriver = uart::UartDriver::new(
-            peripherals.uart1,
-            pins.gpio16,
-            pins.gpio17,
-            Option::<AnyIOPin>::None,
-            Option::<AnyIOPin>::None,
-            &config,
-        )
-            .expect("Error initializing UART Driver");
-
-        uart
+        #[cfg(target_feature = "a")] {
+            // Compiling for the ESP32-C6
+            let uart: uart::UartDriver = uart::UartDriver::new(
+                peripherals.uart1,
+                pins.gpio16,
+                pins.gpio17,
+                Option::<AnyIOPin>::None,
+                Option::<AnyIOPin>::None,
+                &config,
+            ).expect("Error initializing UART Driver");
+            uart
+        }
+        #[cfg(not(target_feature = "a"))] {
+            // Compiling for ESP32-C3
+            let uart: uart::UartDriver = uart::UartDriver::new(
+                peripherals.uart1,
+                pins.gpio21,
+                pins.gpio20,
+                Option::<AnyIOPin>::None,
+                Option::<AnyIOPin>::None,
+                &config,
+            ).expect("Error initializing UART Driver");
+            uart
+        }
     }
 
     fn setup_ed25519() -> Result<(), String> {
@@ -370,7 +383,6 @@ fn main() {
     }
 
     info!("Boot complete!");
-
     loop {
         std::thread::sleep(std::time::Duration::from_millis(100));
 

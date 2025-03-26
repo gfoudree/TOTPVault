@@ -23,8 +23,6 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=160
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_FILENAME="/home/gfoudree/Documents/Projects/totpvault/totpvault-firmware/partition_table.csv"
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="/home/gfoudree/Documents/Projects/totpvault/totpvault-firmware/partition_table.csv"
-#CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=CONFIG_PARTITION_TABLE_FILENAME
-#CONFIG_PARTITION_TABLE_FILENAME="../../../../../../partition_table.csv"
 
 # Set flash size to 4MB
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
