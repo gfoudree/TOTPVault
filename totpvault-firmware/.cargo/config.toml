@@ -3,8 +3,16 @@ target = "riscv32imac-esp-espidf"
 
 [target.riscv32imac-esp-espidf]
 linker = "ldproxy"
+# How to fix broken flash:
+# esptool.py --chip esp32c6 elf2image --flash_size 4MB target/riscv32imac-esp-espidf/release/totpvault-firmware
+# esptool.py --chip esp32c6 --no-stub -p /dev/ttyACM0 write_flash --flash_mode dio --flash_freq 80m --flash_size 4MB 0x0 target/riscv32imac-esp-espidf/release/bootloader.bin 0x10000 target/riscv32imac-esp-espidf/release/partition-table.bin 0x30000 target/riscv32imac-esp-espidf/release/totpvault-firmware.bin
 runner = "espflash flash -S --monitor --no-stub" # Select this runner for espflash v3.x.x
 rustflags = [ "--cfg",  "espidf_time64"] # Extending time_t for ESP IDF 5: https://github.com/esp-rs/rust/issues/110
+
+[target.riscv32imc-esp-espidf]
+linker = "ldproxy"
+runner = "espflash flash -S --monitor --no-stub"
+rustflags = ["--cfg", "espidf_time64"]
 
 [unstable]
 build-std = ["std", "panic_abort"]

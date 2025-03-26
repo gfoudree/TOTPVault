@@ -4,12 +4,13 @@ use base64::prelude::BASE64_STANDARD;
 use chrono::Utc;
 use credential::{Credential, MAX_CREDENTIALS};
 use crypto::{get_ed25519_public_key_nvs, sign_challenge, gen_ed25519_keypair, gen_salt};
-use ed25519_dalek::{SECRET_KEY_LENGTH};
+use ed25519_dalek::SECRET_KEY_LENGTH;
 use esp_idf_svc::{
     hal::{gpio::AnyIOPin, prelude::Peripherals, reset::restart, uart, units::Hertz},
     sys,
 };
 use esp_idf_sys::{nvs_get_stats, nvs_stats_t, ESP_OK};
+use log::{error, info, trace, warn};
 use pbkdf2;
 use rmp_serde::Serializer;
 use serde::Serialize;
@@ -348,6 +349,7 @@ fn main() {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
     esp_idf_svc::sys::link_patches();
+    esp_idf_svc::log::EspLogger::initialize_default();
 
     #[cfg(debug_assertions)]
     std::env::set_var("RUST_BACKTRACE", "1");
@@ -356,14 +358,18 @@ fn main() {
     unsafe {
         sys::bootloader_random_enable();
     }
+    info!("Hardware RNG enabled");
 
     let mut sys = System::new();
     let mut uart = sys.setup_uart();
 
+    info!("UART enabled");
     if let Err(e) = System::first_boot_hook() {
-        println!("Critical error on first boot! {e}");
+        error!("Critical error on first boot! {e}");
         restart();
     }
+
+    info!("Boot complete!");
 
     loop {
         std::thread::sleep(std::time::Duration::from_millis(100));

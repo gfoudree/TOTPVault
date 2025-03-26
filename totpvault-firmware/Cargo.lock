@@ -1867,6 +1867,7 @@ dependencies = [
  "esp-idf-svc",
  "esp-idf-sys",
  "hex",
+ "log",
  "pbkdf2",
  "rand",
  "rmp-serde",

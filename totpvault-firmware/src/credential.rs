@@ -10,7 +10,6 @@ pub const MAX_CREDENTIALS: u8 = 64;
 #[derive(Serialize, Deserialize, Debug)]
 
 pub struct Credential {
-    // TODO: audit what would happen if an attacker can modify the plaintext fields
     pub domain_name: String,
     pub in_use: bool,
     pub slot_id: u8,
