@@ -16,7 +16,7 @@ mod tests;
 struct Cli {
     #[arg(short, long, global = true, required = false, help = "Verbose mode")]
     verbose: bool,
-    #[arg(short, long, global = true, required = false, help = "Path to specific device. Ex: /dev/ttyACM0")]
+    #[arg(short = 'p', long, global = true, required = false, help = "Path to specific device. Ex: /dev/ttyACM0")]
     device: Option<String>,
     #[command(subcommand)]
     command: Commands,

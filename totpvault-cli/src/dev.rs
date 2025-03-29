@@ -101,7 +101,7 @@ impl TotpvaultDev {
     }
 
     pub fn get_device_status(dev_path: &str) -> Result<SystemInfoMsg, String> {
-        let resp = send_command(dev_path, CMD_DEV_INFO, Some(500))?;
+        let resp = send_command(dev_path, CMD_DEV_INFO, Some(1000))?;
         // Check that we got a valid SYSINFO message
         if resp[0] != MSG_SYSINFO {
             // Dump error out
@@ -136,7 +136,7 @@ impl TotpvaultDev {
     }
 
     pub fn get_totp_code(dev_path: &str, domain_name: &str) -> Result<TOTPCodeMsg, String> {
-        let resp = send_message(dev_path, DisplayCodeMsg{domain_name: domain_name.to_string()}, CMD_DISPLAY_CODE, Some(500))?;
+        let resp = send_message(dev_path, DisplayCodeMsg{domain_name: domain_name.to_string()}, CMD_DISPLAY_CODE, Some(800))?;
         if resp[0] == MSG_TOTP_CODE {
             let totp_code_msg: TOTPCodeMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
             Ok(totp_code_msg)
