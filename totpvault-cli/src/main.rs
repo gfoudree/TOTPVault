@@ -149,11 +149,19 @@ fn main() {
         }
         Commands::AddCredential(args) => {
             let mut totp_secret = rpassword::prompt_password("Enter TOTP Secret Key: ").unwrap();
-            match TotpvaultDev::add_credential(device, args.domain_name.as_str(), totp_secret.as_str()) {
-                Ok(_) => println!("Successfully added credential"),
-                Err(error) => eprintln!("{}", error),
+
+            // Strip out spaces as some websites (Gmail) have spaces in the secret
+            totp_secret = totp_secret.replace(" ", "");
+
+            if let Err(e) = totpvault_lib::validate_totp_secret(totp_secret.as_str()) {
+                eprintln!("{}", e);
+            } else {
+                match TotpvaultDev::add_credential(device, args.domain_name.as_str(), totp_secret.as_str()) {
+                    Ok(_) => println!("Successfully added credential"),
+                    Err(error) => eprintln!("{}", error),
+                }
+                totp_secret.zeroize();
             }
-            totp_secret.zeroize();
         }
         Commands::TotpCode(args) => {
             match TotpvaultDev::get_totp_code(device, args.domain_name.as_str()) {

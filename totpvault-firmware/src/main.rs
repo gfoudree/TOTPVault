@@ -320,7 +320,7 @@ impl System {
             used_slots: 0,
             free_slots: 0,
             current_timestamp: Utc::now().timestamp() as u64,
-            version_str: "2FA Cube Version 0.1".to_string(),
+            version_str: "TOTPVault Version 0.1".to_string(),
             vault_unlocked: self.vault_unlocked,
             public_key: pubkey,
         };

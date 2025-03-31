@@ -198,6 +198,24 @@ impl Message for InitVaultMsg {
     fn message_type_byte(&self) -> u8 { CMD_INIT_VAULT }
 }
 
+pub fn validate_totp_secret(totp_secret: &str) -> Result<(), String> {
+    if totp_secret.len() > MAX_TOTP_SECRET_LEN || totp_secret.len() < MIN_TOTP_SECRET_LEN {
+        return Err(format!("TOTP secret is > {} bytes or < {} bytes!", MAX_TOTP_SECRET_LEN, MIN_TOTP_SECRET_LEN));
+    }
+
+    // Check if secret is valid BASE32 per the spec
+    if BASE32.decode(totp_secret.as_bytes()).is_err() {
+        return Err("TOTP secret is not valid base32!".to_string());
+    }
+
+    // Finally, make sure that the TOTP library can encode it
+    let totp_secret_parsed: totp_rs::Secret = totp_rs::Secret::Encoded(totp_secret.to_string());
+    match totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, totp_secret_parsed.to_bytes().unwrap()) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("TOTP Secret is invalid: {}", e))
+    }
+}
+
 impl Message for CreateEntryMsg {
     fn validate(&self) -> bool {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
@@ -205,28 +223,7 @@ impl Message for CreateEntryMsg {
             return false;
         }
 
-        // TODO: establish correct values
-        // TODO: Base32 encoding is not going to always be the same length (?) how do we handle this?
-        if self.totp_secret.len() > MAX_TOTP_SECRET_LEN || self.totp_secret.len() < MIN_TOTP_SECRET_LEN {
-            print_debug_msg(format!("TOTP secret is > {} bytes or < {} bytes!", MAX_TOTP_SECRET_LEN, MIN_TOTP_SECRET_LEN));
-            return false;
-        }
-
-        // Check if secret is valid BASE32 per the spec
-        if BASE32.decode(self.totp_secret.as_bytes()).is_err() {
-            print_debug_msg("TOTP secret is not valid base32!".to_string());
-            return false;
-        }
-
-        // Finally, make sure that the TOTP library can encode it
-        let totp_secret_parsed: totp_rs::Secret = totp_rs::Secret::Encoded(self.totp_secret.clone());
-        match totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, totp_secret_parsed.to_bytes().unwrap()) {
-            Ok(_) => true,
-            Err(e) => {
-                print_debug_msg(format!("TOTP Secret is invalid: {}", e));
-                false
-            }
-        }
+        validate_totp_secret(self.totp_secret.as_str()).is_ok()
     }
     fn message_type_byte(&self) -> u8 { CMD_CREATE }
 }

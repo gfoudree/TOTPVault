@@ -48,16 +48,20 @@ Usage:
 totpvault-cli init-vault
 ```
 
-## Dev Info
+## Device Info
 Get device information.
+
+Free/Used slots is always `0` when the vault is locked for security reasons
 
 Usage:
 ```
 totpvault-cli dev-info
 ```
 
-## Attest Dev
+## Attest Device
 Perform device attestation.
+
+`<public_key>` should be the public key (not fingerprint) of the trusted device to send a challenge to.
 
 Usage:
 ```
@@ -65,7 +69,9 @@ totpvault-cli attest-dev --key <public_key>
 ```
 
 ## List Devices
-List connected devices.
+List connected devices. 
+
+Use `-v` to view detailed information
 
 Usage:
 ```
@@ -73,7 +79,7 @@ totpvault-cli list-devices
 ```
 
 ## Unlock Vault
-Unlock the vault.
+Unlock the vault
 
 Usage:
 ```
@@ -81,17 +87,9 @@ totpvault-cli unlock-vault
 ```
 
 ## Lock Vault
-Lock the vault.
+Lock the vault
 
 Usage:
 ```
 totpvault-cli lock-vault
-```
-
-## Dump Logs
-Dump system logs.
-
-Usage:
-```
-totpvault-cli dump-logs
 ```
