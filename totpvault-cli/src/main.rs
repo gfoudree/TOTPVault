@@ -154,7 +154,7 @@ fn main() {
             totp_secret = totp_secret.replace(" ", "");
 
             if let Err(e) = totpvault_lib::validate_totp_secret(totp_secret.as_str()) {
-                eprintln!("{}", e);
+                eprintln!("Err: {}", e);
             } else {
                 match TotpvaultDev::add_credential(device, args.domain_name.as_str(), totp_secret.as_str()) {
                     Ok(_) => println!("Successfully added credential"),

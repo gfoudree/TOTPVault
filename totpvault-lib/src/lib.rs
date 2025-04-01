@@ -203,16 +203,14 @@ pub fn validate_totp_secret(totp_secret: &str) -> Result<(), String> {
         return Err(format!("TOTP secret is > {} bytes or < {} bytes!", MAX_TOTP_SECRET_LEN, MIN_TOTP_SECRET_LEN));
     }
 
-    // Check if secret is valid BASE32 per the spec
-    if BASE32.decode(totp_secret.as_bytes()).is_err() {
-        return Err("TOTP secret is not valid base32!".to_string());
-    }
-
     // Finally, make sure that the TOTP library can encode it
-    let totp_secret_parsed: totp_rs::Secret = totp_rs::Secret::Encoded(totp_secret.to_string());
-    match totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, totp_secret_parsed.to_bytes().unwrap()) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("TOTP Secret is invalid: {}", e))
+    if let Ok(totp_secret_parsed) = totp_rs::Secret::Encoded(totp_secret.to_string()).to_bytes() {
+        match totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, totp_secret_parsed) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("TOTP Secret is invalid: {}", e))
+        }
+    } else {
+        Err("TOTP Secret is invalid".to_string())
     }
 }
 
@@ -223,7 +221,13 @@ impl Message for CreateEntryMsg {
             return false;
         }
 
-        validate_totp_secret(self.totp_secret.as_str()).is_ok()
+        match validate_totp_secret(self.totp_secret.as_str()) {
+            Ok(()) => true,
+            Err(e) => {
+                print_debug_msg(format!("TOTP secret is invalid: {}", e));
+                false
+            }
+        }
     }
     fn message_type_byte(&self) -> u8 { CMD_CREATE }
 }
