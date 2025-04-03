@@ -20,8 +20,6 @@ opt-level = "z"
 [features]
 default = []
 
-
-
 [dependencies]
 esp-idf-svc = { version = "0.51", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
 zeroize = "1.8.1"
