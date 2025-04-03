@@ -1,8 +1,6 @@
-use data_encoding::BASE32;
 use serde::{Deserialize, Serialize};
 use totp_rs;
 use zeroize::{Zeroize, ZeroizeOnDrop};
-use log::debug;
 
 pub const CMD_SET_TIME: u8 = 0x10;
 pub const CMD_CREATE: u8 = 0x11;
@@ -31,15 +29,16 @@ pub const NONCE_CHALLENGE_LEN: usize = 64;
 
 pub const SUCCESS_MSG: &str = "Success!";
 
-fn print_debug_msg(msg: String) {
+fn print_debug_msg(_msg: String) {
     // For the desktop
     #[cfg(not(target_arch = "riscv32"))] {
-        debug!("{}", msg);
+        use log::debug;
+        debug!("{}", _msg);
     }
 
     // For the ESP32
     #[cfg(all(target_arch = "riscv32", debug_assertions))] {
-        println!("{}", msg);
+        println!("{}", _msg);
     }
 }
 pub trait Message {

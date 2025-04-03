@@ -43,3 +43,7 @@ fp-info-cache
 target
 .gdb_history
 .aider*
+
+
+*.bin
+*.pem

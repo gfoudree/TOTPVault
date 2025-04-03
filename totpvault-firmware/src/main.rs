@@ -9,8 +9,8 @@ use esp_idf_svc::{
     hal::{gpio::AnyIOPin, prelude::Peripherals, reset::restart, uart, units::Hertz},
     sys,
 };
-use esp_idf_sys::{nvs_get_stats, nvs_stats_t, ESP_OK};
-use log::{error, info, trace, warn};
+
+use log::{error, info};
 use pbkdf2;
 use rmp_serde::Serializer;
 use serde::Serialize;
@@ -122,6 +122,7 @@ impl System {
         nvs_write_blob_encrypted("magic", &ENCRYPTION_MAGIC, &enc_key)?;
 
         #[cfg(debug_assertions)] {
+            use esp_idf_sys::{nvs_get_stats, nvs_stats_t, ESP_OK};
             let mut stats: nvs_stats_t = Default::default();
             unsafe {
                 let res = nvs_get_stats(core::ptr::null_mut(), &mut stats);
@@ -190,10 +191,10 @@ impl System {
                 cred.totp_secret_decrypted.zeroize();
                 Ok(totp_code)
             }
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
                 {
-                    println!("Unlock message decoding error: {:?}", e);
+                    println!("Unlock message decoding error: {:?}", _e);
                 }
                 Err("Invalid display code message".to_string())
             }
