@@ -9,7 +9,6 @@ use esp_idf_svc::{
     hal::{gpio::AnyIOPin, prelude::Peripherals, reset::restart, uart, units::Hertz},
     sys,
 };
-
 use log::{error, info};
 use pbkdf2;
 use rmp_serde::Serializer;
@@ -92,13 +91,17 @@ impl System {
     }
 
     fn init_vault(&mut self, cmd_buf: &[u8; 512], _read_bytes: usize) -> Result<(), String> {
-        let init_msg = rmp_serde::from_slice::<InitVaultMsg>(&cmd_buf[1..]).map_err(|_| format!("Invalid InitVault message"))?;
+        let init_msg = rmp_serde::from_slice::<InitVaultMsg>(&cmd_buf[1..]).map_err(|_| "Invalid InitVault message".to_string())?;
 
         if !init_msg.validate() {
             return Err("Invalid InitVault message".to_string());
         }
 
         self.vault_unlocked = false;
+
+        // Erase NVS partition
+        format_nvs_partition()?;
+        Self::setup_ed25519()?;
 
         // Generate encryption salt and store it in the database
         let salt = gen_salt();
@@ -302,12 +305,13 @@ impl System {
         Ok(())
     }
     fn first_boot_hook() -> Result<(), String> {
-        // Erase NVS partition
-        format_nvs_partition()?;
-        // Setup ED25519 Key
+        // If we don't have a ED25519 private key setup, then this is the first boot
         match nvs_read_blob(NVS_KEY_ED25519) {
             Ok(_) => {}
             Err(_) => {
+                // Erase NVS partition
+                format_nvs_partition()?;
+                // Setup ED25519 Key
                 Self::setup_ed25519()?;
             }
         }
@@ -316,12 +320,13 @@ impl System {
 
     fn get_system_info(&self) -> Result<SystemInfoMsg, String> {
         let pubkey = get_ed25519_public_key_nvs().map_err(|e| format!("Unable to get device public key. {}", e))?;
+
         let mut info_msg = SystemInfoMsg {
             total_slots: MAX_CREDENTIALS,
             used_slots: 0,
             free_slots: 0,
             current_timestamp: Utc::now().timestamp() as u64,
-            version_str: "TOTPVault Version 0.1".to_string(),
+            version_str: format!("TOTPVault Version {}", env!("CARGO_PKG_VERSION")),
             vault_unlocked: self.vault_unlocked,
             public_key: pubkey,
         };
@@ -465,7 +470,6 @@ fn main() {
                         }
                     }
                     CMD_UNLOCK_VAULT => {
-                        // TODO: use subtle crypto library when needed!
                         match sys.unlock_vault(&buf, num) {
                             Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
                             Err(_) => send_response_message(&mut uart, "Incorrect Password", true),
