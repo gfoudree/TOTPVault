@@ -119,7 +119,7 @@ qemu_test() {
 }
 
 flash_device() {
-  esptool.py --chip esp32c3 -p /dev/ttyACM0 --after=no_reset write_flash --force --flash_mode dio --flash_freq 80m --flash_size 4MB 0x0 $BOOTLOADER_ENCRYPTED 0x10000 $PARTITION_TABLE_ENCRYPTED 0x30000 $ELF_FIRMWARE_SIGNED_ENCRYPTED
+  esptool.py --chip esp32c3 -p /dev/ttyACM0 --after=no_reset write_flash --no-compress --force --flash_mode dio --flash_freq 80m --flash_size 4MB 0x0 $BOOTLOADER_ENCRYPTED 0x10000 $PARTITION_TABLE_ENCRYPTED 0x30000 $ELF_FIRMWARE_SIGNED_ENCRYPTED
 }
 
 sign_firmware
