@@ -18,6 +18,8 @@ struct Cli {
     verbose: bool,
     #[arg(short = 'p', long, global = true, required = false, help = "Path to specific device. Ex: /dev/ttyACM0")]
     device: Option<String>,
+    #[arg(short = 't', long, global = true, required = false, help = "Specify device communication timeout in ms")]
+    timeout: Option<u64>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -126,13 +128,13 @@ fn main() {
 
     match cli.command {
         Commands::SyncTime => {
-            match TotpvaultDev::sync_time(device) {
+            match TotpvaultDev::sync_time(device, cli.timeout) {
                 Ok(_) => println!("Successfully synced time"),
                 Err(error) => eprintln!("Error syncing device time\n\tError = {}", error),
             }
         }
         Commands::ListCredentials => {
-            match TotpvaultDev::list_stored_credentials(device) {
+            match TotpvaultDev::list_stored_credentials(device, cli.timeout) {
                 Ok(credentials) => {
                     for (i, cred) in credentials.iter().enumerate() {
                         println!("[Slot {}]: {}", i, cred.domain_name.green());
@@ -142,7 +144,7 @@ fn main() {
             }
         }
         Commands::DeleteCredential(args) => {
-            match TotpvaultDev::delete_credential(device, args.domain_name.as_str()) {
+            match TotpvaultDev::delete_credential(device, cli.timeout, args.domain_name.as_str()) {
                 Ok(_) => println!("Successfully deleted credential"),
                 Err(error) => eprintln!("Error deleting credential \"{}\": {}", args.domain_name, error),
             }
@@ -156,7 +158,7 @@ fn main() {
             if let Err(e) = totpvault_lib::validate_totp_secret(totp_secret.as_str()) {
                 eprintln!("Err: {}", e);
             } else {
-                match TotpvaultDev::add_credential(device, args.domain_name.as_str(), totp_secret.as_str()) {
+                match TotpvaultDev::add_credential(device, cli.timeout, args.domain_name.as_str(), totp_secret.as_str()) {
                     Ok(_) => println!("Successfully added credential"),
                     Err(error) => eprintln!("{}", error),
                 }
@@ -164,7 +166,7 @@ fn main() {
             }
         }
         Commands::TotpCode(args) => {
-            match TotpvaultDev::get_totp_code(device, args.domain_name.as_str()) {
+            match TotpvaultDev::get_totp_code(device, cli.timeout, args.domain_name.as_str()) {
                 Ok(totp_msg) => {
                     // Check if the device is in sync, warn the user if not
                     if !TotpvaultDev::timesync_check(totp_msg.system_timestamp) {
@@ -193,7 +195,7 @@ fn main() {
                     eprintln!("Did not enter a password");
                 }
                 else if p1 == p2 {
-                    match TotpvaultDev::init_vault(&device, &p1) {
+                    match TotpvaultDev::init_vault(&device, cli.timeout, &p1) {
                         Ok(_) => println!("Successfully initialized vault!"),
                         Err(error) => eprintln!("Error initializing vault: {}", error),
                     }
@@ -205,7 +207,7 @@ fn main() {
             }
         }
         Commands::DevInfo => {
-            match TotpvaultDev::get_device_status(device) {
+            match TotpvaultDev::get_device_status(device, cli.timeout) {
                 Ok(device_status) => {
                     dump_device_status(&device_status);
                 },
@@ -217,7 +219,7 @@ fn main() {
                 Some(key) => key,
                 None => {
                     println!("No key specified, getting public key from device...");
-                    match TotpvaultDev::get_device_status(device) {
+                    match TotpvaultDev::get_device_status(device, cli.timeout) {
                         Ok(device_status) => device_status.public_key,
                         Err(error) => {
                             eprintln!("Unable to get device status from: {}\n\tError = {}", device, error);
@@ -228,7 +230,7 @@ fn main() {
             };
 
             println!("Public key: {}\nFingerprint: {}", pub_key_b64, TotpvaultDev::public_key_to_hash(&pub_key_b64).unwrap());
-            match TotpvaultDev::attest_device(device, &pub_key_b64) {
+            match TotpvaultDev::attest_device(device, cli.timeout, &pub_key_b64) {
                 Ok(_) => println!("{}", "Successfully attested device".green()),
                 Err(error) => eprintln!("Error attesting device: {}", error),
             }
@@ -247,7 +249,7 @@ fn main() {
                 eprintln!("Did not enter a password");
             }
             else {
-                match TotpvaultDev::unlock_vault(device, &password) {
+                match TotpvaultDev::unlock_vault(device, cli.timeout, &password) {
                     Ok(_) => println!("Successfully unlocked vault"),
                     Err(error) => eprintln!("Error unlocking vault\n\tError = {}", error),
                 }
@@ -256,7 +258,7 @@ fn main() {
             password.zeroize();
         }
         Commands::LockVault => {
-            match TotpvaultDev::lock_vault(device) {
+            match TotpvaultDev::lock_vault(device, cli.timeout) {
                 Ok(_) => println!("{}", "Locked vault".green()),
                 Err(error) => eprintln!("Error locking vault: {}", error),
             }

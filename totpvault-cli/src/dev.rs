@@ -1,6 +1,7 @@
 const VID: u16 = 0x1a86;
 const PID: u16 = 0x55d3;
 const ALLOWED_TIMESYNC_DELTA: i64 = 3;
+const DEFAULT_UART_DELAY: u64 = 1500;
 use std::{env};
 use rmp_serde::{Deserializer};
 use serialport;
@@ -100,8 +101,8 @@ impl TotpvaultDev {
         Err("No TOTP devices found.".to_string())
     }
 
-    pub fn get_device_status(dev_path: &str) -> Result<SystemInfoMsg, String> {
-        let resp = send_command(dev_path, CMD_DEV_INFO, Some(1000))?;
+    pub fn get_device_status(dev_path: &str, timeout: Option<u64>) -> Result<SystemInfoMsg, String> {
+        let resp = send_command(dev_path, CMD_DEV_INFO, timeout.unwrap_or(2000))?;
         // Check that we got a valid SYSINFO message
         if resp[0] != MSG_SYSINFO {
             // Dump error out
@@ -119,8 +120,8 @@ impl TotpvaultDev {
         Ok(msg)
     }
 
-    pub fn list_stored_credentials(dev_path: &str) -> Result<Vec<CredentialInfo>, String> {
-        let resp = send_command(dev_path, CMD_LIST, Some(2000))?;
+    pub fn list_stored_credentials(dev_path: &str, timeout: Option<u64>) -> Result<Vec<CredentialInfo>, String> {
+        let resp = send_command(dev_path, CMD_LIST, timeout.unwrap_or(2000))?;
         if resp[0] == MSG_LIST_CREDS {
             let cred_list_msg: CredentialListMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| format!("Failed to deserialize CredentialListMsg: {}", e))?;
             Ok(cred_list_msg.credentials)
@@ -135,8 +136,8 @@ impl TotpvaultDev {
         }
     }
 
-    pub fn get_totp_code(dev_path: &str, domain_name: &str) -> Result<TOTPCodeMsg, String> {
-        let resp = send_message(dev_path, DisplayCodeMsg{domain_name: domain_name.to_string()}, CMD_DISPLAY_CODE, Some(800))?;
+    pub fn get_totp_code(dev_path: &str, timeout: Option<u64>, domain_name: &str) -> Result<TOTPCodeMsg, String> {
+        let resp = send_message(dev_path, DisplayCodeMsg{domain_name: domain_name.to_string()}, CMD_DISPLAY_CODE, timeout.unwrap_or(800))?;
         if resp[0] == MSG_TOTP_CODE {
             let totp_code_msg: TOTPCodeMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
             Ok(totp_code_msg)
@@ -151,42 +152,42 @@ impl TotpvaultDev {
         }
     }
 
-    pub fn add_credential(dev_path: &str, domain_name: &str, totp_secret: &str) -> Result<(), String> {
-        let resp = send_message(dev_path, CreateEntryMsg{domain_name: domain_name.to_string(), totp_secret: totp_secret.to_string()}, CMD_CREATE, None)?;
+    pub fn add_credential(dev_path: &str, timeout: Option<u64>, domain_name: &str, totp_secret: &str) -> Result<(), String> {
+        let resp = send_message(dev_path, CreateEntryMsg{domain_name: domain_name.to_string(), totp_secret: totp_secret.to_string()}, CMD_CREATE, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
         check_status_msg(resp)
     }
-    pub fn delete_credential(dev_path: &str, domain_name: &str) -> Result<(), String> {
-        let resp =  send_message(dev_path, DeleteEntryMsg{domain_name: domain_name.to_string()}, CMD_DELETE, None)?;
-        check_status_msg(resp)
-    }
-
-    pub fn unlock_vault(dev_path: &str, password: &str) -> Result<(), String> {
-        let resp = send_message(dev_path, UnlockMsg{password: password.to_string()}, CMD_UNLOCK_VAULT, Some(2000))?;
+    pub fn delete_credential(dev_path: &str, timeout: Option<u64>, domain_name: &str) -> Result<(), String> {
+        let resp =  send_message(dev_path, DeleteEntryMsg{domain_name: domain_name.to_string()}, CMD_DELETE, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
         check_status_msg(resp)
     }
 
-    pub fn init_vault(dev_path: &str, password: &str) -> Result<(), String> {
+    pub fn unlock_vault(dev_path: &str, timeout: Option<u64>, password: &str) -> Result<(), String> {
+        let resp = send_message(dev_path, UnlockMsg{password: password.to_string()}, CMD_UNLOCK_VAULT, timeout.unwrap_or(2000))?;
+        check_status_msg(resp)
+    }
+
+    pub fn init_vault(dev_path: &str, timeout: Option<u64>, password: &str) -> Result<(), String> {
         let msg = InitVaultMsg{password: password.to_string()};
         if !msg.validate() {
             Err(format!("Password does not meet the criteria of {}-{} characters", MIN_PW_LEN, MAX_PW_LEN))
         }
         else {
-            let res = send_message(dev_path, msg, CMD_INIT_VAULT, Some(2000))?;
+            let res = send_message(dev_path, msg, CMD_INIT_VAULT, timeout.unwrap_or(2000))?;
             check_status_msg(res)
         }
 
     }
-    pub fn sync_time(dev_path: &str) -> Result<(), String> {
-        let res = send_message(dev_path, SetTimeMsg{unix_timestamp: Utc::now().timestamp() as u64}, CMD_SET_TIME, None)?;
+    pub fn sync_time(dev_path: &str, timeout: Option<u64>) -> Result<(), String> {
+        let res = send_message(dev_path, SetTimeMsg{unix_timestamp: Utc::now().timestamp() as u64}, CMD_SET_TIME, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
         check_status_msg(res)
     }
 
-    pub fn lock_vault(dev_path: &str) -> Result<(), String> {
-        let res = send_command(dev_path, CMD_LOCK_VAULT, None)?;
+    pub fn lock_vault(dev_path: &str, timeout: Option<u64>) -> Result<(), String> {
+        let res = send_command(dev_path, CMD_LOCK_VAULT, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
         check_status_msg(res)
     }
 
-    pub fn attest_device(dev_path: &str, pub_key_b64: &str) -> Result<(), String> {
+    pub fn attest_device(dev_path: &str, timeout: Option<u64>, pub_key_b64: &str) -> Result<(), String> {
         // Decode public key
         let pub_key = BASE64_STANDARD.decode(pub_key_b64).map_err(|e| format!("Error decoding public key: {}", e))?;
         let pub_key_bytes: [u8; 32] = pub_key.try_into().map_err(|_| "Public key not proper length!")?;
@@ -195,7 +196,7 @@ impl TotpvaultDev {
         let random_bytes: [u8; 64] = rand_latest::random();
         let random_bytes_encoded = BASE64_STANDARD.encode(&random_bytes);
 
-        let resp = send_message(dev_path, AuthenticateChallengeMsg{nonce_challenge: random_bytes_encoded}, CMD_ATTEST, Some(2000))?;
+        let resp = send_message(dev_path, AuthenticateChallengeMsg{nonce_challenge: random_bytes_encoded}, CMD_ATTEST, timeout.unwrap_or(5000))?;
         if resp[0] == MSG_ATTESTATION_RESPONSE {
             let attestation_resp_msg: AttestationResponseMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
             // Check the attestation message

@@ -1,8 +1,11 @@
 # Getting Started
 
+
 ## Find the TOTPVault device
+Insert the device into your computer and search for it
 ```bash
 $ totpvault-cli dev-info
+
 Device Status:
 	Vault: Locked
 	Total Slots: 64
@@ -21,6 +24,7 @@ If you don't see the device, try running with `-v` to see the verbose output. Yo
 Initialize the vault with a strong password. This wipes all existing credentials in the vault, beware!
 ```bash
 $ totpvault-cli init-vault
+
 **************** WARNING ****************
 Initializing the vault will WIPE EXISTING CREDENTIALS!
 Please make sure you will not be locked out of your accounts!
@@ -35,21 +39,24 @@ Successfully initialized vault!
 ## Unlock the vault
 ```bash
 $ totpvault-cli unlock-vault
+
 Enter password:
 Successfully unlocked vault
 ```
 
 ## Sync time
-Time must be synced to the vault on power reset as there is no battery-powered clock. Inaccurate time will result in invalid TOTP codes
+Time must be synced to the vault on power reset as there is no battery-powered clock. **Inaccurate time will result in invalid TOTP codes**
 
 ```bash
 $ totpvault-cli sync-time
+
 Successfully synced time
 ```
 
 ## Verify time-sync and unlocked status
 ```bash
 $ totpvault-cli dev-info
+
 Device Status:
 	Vault: Unlocked
 	Total Slots: 64
@@ -57,15 +64,35 @@ Device Status:
 	Free Slots: 64
 	Current Timestamp: 1743270512 (In-sync)
 ```
-`Vault: Unlocked` and `Current Timestamp: 1743270512 (In-sync)` shows the vault's time is in sync
+`Vault: Unlocked` and `Current Timestamp: 1743270512 (In-sync)` shows that the vault's time is in sync
 
 ## Add a credential
+Login to the account you wish to add, and enable a new TOTP credential
+
+When the QR code displays, there should be a option such as "can't scan code" which displays a string such as `r7uk mfjw zboh 3x3u ccij bptu leeq thk6`
+
+Next, run the following command pasting the string from above
 ```bash
 $ totpvault-cli add-credential --domain-name google.com
+
+Enter TOTP Secret Key:
+Successfully added credential
 ```
 
 ## List credentials
+```bash
+$ totpvault-cli list-credentials
 
+[Slot 0]: google.com
+```
 
 ## Get TOTP code
+If the code is incorrect, wait until the next code rolls over (or 30+ sec) since there can be a small delay with the device generating the code
+```bash
+$ totpvault-cli totp-code -d google.com
+
+056086
+11s remaining
+```
+
 Refer to the [Commands](commands.md) section for detailed usage of each command.
