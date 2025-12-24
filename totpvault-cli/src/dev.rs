@@ -177,9 +177,13 @@ impl TotpvaultDev {
         }
 
     }
-    pub fn sync_time(dev_path: &str, timeout: Option<u64>) -> Result<(), String> {
-        let res = send_message(dev_path, SetTimeMsg{unix_timestamp: Utc::now().timestamp() as u64}, CMD_SET_TIME, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
-        check_status_msg(res)
+    pub fn sync_time(dev_path: &str, timeout: Option<u64>) -> Result<String, String> {
+        let time = Utc::now();
+        let res = send_message(dev_path, SetTimeMsg{unix_timestamp: time.timestamp() as u64}, CMD_SET_TIME, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
+        match check_status_msg(res) {
+            Ok(_) => Ok(time.to_string()),
+            Err(e) => Err(e.to_string())
+        }
     }
 
     pub fn lock_vault(dev_path: &str, timeout: Option<u64>) -> Result<(), String> {

@@ -243,7 +243,7 @@ impl System {
     }
 
     fn set_time(&mut self, cmd_buf: &[u8; 512], _read_bytes: usize) -> Result<(), String> {
-        let time_msg = rmp_serde::from_slice::<SetTimeMsg>(&cmd_buf[1..]).map_err(|_| format!("Invalid SetTime message"))?;
+        let time_msg = rmp_serde::from_slice::<SetTimeMsg>(&cmd_buf[1..]).map_err(|_| "Invalid SetTime message".to_string())?;
 
         if !time_msg.validate() {
             return Err("Invalid SetTime message".to_string());
@@ -393,15 +393,25 @@ fn main() {
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         let mut buf: [u8; 512] = [0; 512];
-        if let Ok(num) = uart.read(&mut buf, 10) {
-            if num > 0 {
+        if let Ok(num_bytes_read) = uart.read(&mut buf, 10) {
+            if num_bytes_read > 0 {
                 let command = buf[0];
+
+                // Only the CMD_LOCK_VAULT, CMD_DEV_INFO, CMD_LIST commands are one byte, the rest should be 2+ bytes
+                let min_required_len = match command {
+                    CMD_LOCK_VAULT | CMD_DEV_INFO | CMD_LIST => 1,
+                    _ =>  2,
+                };
+                if num_bytes_read < min_required_len {
+                    continue;
+                }
+
                 match command {
                     CMD_SET_TIME => {
                         if sys.vault_unlocked == false {
                             send_response_message(&mut uart, "Vault Locked!", true)
                         } else {
-                            match sys.set_time(&buf, num) {
+                            match sys.set_time(&buf, num_bytes_read) {
                                 Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
                                 Err(e) => send_response_message(&mut uart, e.as_str(), true),
                             }
@@ -411,7 +421,7 @@ fn main() {
                         if sys.vault_unlocked == false {
                             send_response_message(&mut uart, "Vault Locked!", true)
                         } else {
-                            match sys.create_entry(&buf, num) {
+                            match sys.create_entry(&buf, num_bytes_read) {
                                 Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
                                 Err(e) => send_response_message(&mut uart, e.as_str(), true),
                             }
@@ -470,19 +480,18 @@ fn main() {
                         }
                     }
                     CMD_UNLOCK_VAULT => {
-                        match sys.unlock_vault(&buf, num) {
+                        match sys.unlock_vault(&buf, num_bytes_read) {
                             Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
                             Err(_) => send_response_message(&mut uart, "Incorrect Password", true),
                         };
                     }
-                    CMD_INIT_VAULT => match sys.init_vault(&buf, num) {
+                    CMD_INIT_VAULT => match sys.init_vault(&buf, num_bytes_read) {
                         Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
                         Err(e) => send_response_message(&mut uart, e.as_str(), true),
                     },
                     CMD_ATTEST => {
                         // Generate pub/priv keypair during vault init or first boot (?) if first boot, we have to make sure we NEVER wipe it! Maybe store in eFuse
                         // Respond to a challenge and authenticate the HW to avoid evil maid attacks
-                        // Use hardware digital signature module with ESP32
                         #[cfg(debug_assertions)]
                         println!("Challenge Raw Bytes: {}", hex::encode(&buf));
 

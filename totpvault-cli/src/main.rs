@@ -1,10 +1,12 @@
+use std::path::absolute;
 use clap::{Args, Parser, Subcommand};
-use log::warn;
+use log::{warn, debug};
 use totpvault_lib::SystemInfoMsg;
 use colored::Colorize;
 use env_logger::Builder;
 use zeroize::Zeroize;
 use crate::dev::TotpvaultDev;
+use chrono::Utc;
 
 mod dev;
 mod comm;
@@ -58,9 +60,6 @@ enum Commands {
 
     #[command(about = "Lock the vault")]
     LockVault,
-
-    #[command(about = "Dump system logs")]
-    DumpLogs,
 }
 
 #[derive(Args)]
@@ -94,8 +93,14 @@ fn dump_device_status(device_status: &SystemInfoMsg) {
     };
 
     let timestamp_msg = match TotpvaultDev::timesync_check(device_status.current_timestamp) {
-        true => format!("{} {}", device_status.current_timestamp, "(In-sync)".green()),
-        false => format!("{} {}", device_status.current_timestamp, "(Out-of-Sync)".red().bold()),
+        true => {
+            let time_delta = (Utc::now().timestamp() as u64).abs_diff(device_status.current_timestamp);
+            format!("{} delta={} {}", device_status.current_timestamp, time_delta, "(In-sync)".green())
+        },
+        false => {
+            let time_delta = (Utc::now().timestamp() as u64).abs_diff(device_status.current_timestamp);
+            format!("{} delta={} {}", device_status.current_timestamp, time_delta, "(Out-of-Sync)".red().bold())
+        },
     };
 
     println!("Device Status:\n\tVault: {}\n\tTotal Slots: {}\n\tUsed Slots: {}\n\tFree Slots: {}\n\tCurrent Timestamp: {}\n\tVersion: {}\n\tPublic Key: {}", locked_msg, device_status.total_slots, device_status.used_slots,
@@ -103,6 +108,8 @@ fn dump_device_status(device_status: &SystemInfoMsg) {
 
     if let Ok(hash) = TotpvaultDev::public_key_to_hash(&device_status.public_key) {
         println!("\tKey Fingerprint: {}", hash);
+    } else {
+        debug!("Corrupted public key! Key fingerprint: {}", device_status.public_key);
     }
 }
 fn main() {
@@ -129,7 +136,7 @@ fn main() {
     match cli.command {
         Commands::SyncTime => {
             match TotpvaultDev::sync_time(device, cli.timeout) {
-                Ok(_) => println!("Successfully synced time"),
+                Ok(utc_time) => println!("Successfully synced time to: {}", utc_time.yellow()),
                 Err(error) => eprintln!("Error syncing device time\n\tError = {}", error),
             }
         }
@@ -229,11 +236,21 @@ fn main() {
                 }
             };
 
-            println!("Public key: {}\nFingerprint: {}", pub_key_b64, TotpvaultDev::public_key_to_hash(&pub_key_b64).unwrap());
-            match TotpvaultDev::attest_device(device, cli.timeout, &pub_key_b64) {
-                Ok(_) => println!("{}", "Successfully attested device".green()),
-                Err(error) => eprintln!("Error attesting device: {}", error),
+            match TotpvaultDev::public_key_to_hash(&pub_key_b64) {
+                Ok(pub_key_hash) => {
+                    println!("Public key: {}\nFingerprint (SHA256): {}", pub_key_b64.yellow(), pub_key_hash.yellow());
+                    match TotpvaultDev::attest_device(device, cli.timeout, &pub_key_b64) {
+                        Ok(_) => println!("{}", "Successfully attested device".green()),
+                        Err(msg) => {
+                            eprintln!("{}", "Failed to attest device!".to_string().red());
+                            debug!("Attestation error message: {}", msg);
+                        },
+                    }
+                },
+                Err(error) => eprintln!("Invalid base64 public key: {}", error),
             }
+
+
         }
         Commands::ListDevices => {
             if let Ok(dev) = TotpvaultDev::find_device() {
@@ -263,6 +280,5 @@ fn main() {
                 Err(error) => eprintln!("Error locking vault: {}", error),
             }
         }
-        Commands::DumpLogs => todo!("Dumping logs..."),
     }
 }

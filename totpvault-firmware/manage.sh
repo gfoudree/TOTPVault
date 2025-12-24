@@ -12,8 +12,8 @@ PARTITION_TABLE=target/riscv32imc-esp-espidf/release/partition-table.bin
 PARTITION_TABLE_SIGNED=target/riscv32imc-esp-espidf/release/partition-table-signed.bin
 PARTITION_TABLE_ENCRYPTED=target/riscv32imc-esp-espidf/release/partition-table-signed.enc.bin
 
-SECUREBOOT_RSA_KEYFILE=/run/user/1000/gvfs/sftp:host=192.168.1.105,user=root/storage/encrypted/vault/keys/totpvault/secureboot_key.pem
-FLASH_ENCRYPTION_AES_KEYFILE=/run/user/1000/gvfs/sftp:host=192.168.1.105,user=root/storage/encrypted/vault/keys/totpvault/flash_encryption_key.bin
+SECUREBOOT_RSA_KEYFILE=secureboot_key.pem
+FLASH_ENCRYPTION_AES_KEYFILE=flash_encryption_key.bin
 
 FLASH_IMAGE=flash.bin
 EFUSE_FILE=qemu_efuse.bin
@@ -63,7 +63,7 @@ gen_keys() {
 	dd if=/dev/random of=hmac_key.bin bs=1 count=32
 	openssl genrsa -out secureboot_key.pem -verbose 3072
 	espsecure.py generate_flash_encryption_key flash_encryption_key.bin
-	espsecure.py digest_sbv2_public_key --keyfile ecureboot_key.pem --output digest.bin
+	espsecure.py digest_sbv2_public_key --keyfile secureboot_key.pem --output digest.bin
 }
 
 sign_firmware() {
@@ -124,4 +124,5 @@ flash_device() {
 
 sign_firmware
 verify_signature
-flash_device
+qemu_test
+#flash_device
