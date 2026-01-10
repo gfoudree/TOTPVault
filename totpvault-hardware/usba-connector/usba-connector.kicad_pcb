@@ -48,6 +48,7 @@
 			)
 			(layer "F.Mask"
 				(type "Top Solder Mask")
+				(color "Black")
 				(thickness 0.01)
 			)
 			(layer "F.Cu"
@@ -67,6 +68,7 @@
 			)
 			(layer "B.Mask"
 				(type "Bottom Solder Mask")
+				(color "Black")
 				(thickness 0.01)
 			)
 			(layer "B.Paste"
@@ -1709,6 +1711,7 @@
 		)
 		(embedded_fonts no)
 		(model "${KICAD9_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x05_P2.54mm_Vertical.wrl"
+			(hide yes)
 			(offset
 				(xyz 0 0 0)
 			)
@@ -4989,7 +4992,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "120"
+		(property "Value" "400"
 			(at 0 0.2 90)
 			(layer "F.Fab")
 			(hide yes)
@@ -7461,7 +7464,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "120"
+		(property "Value" "400"
 			(at 0 0.2 0)
 			(layer "F.Fab")
 			(hide yes)

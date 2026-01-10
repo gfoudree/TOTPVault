@@ -1,5 +1,15 @@
 # Getting Started
 
+## Installation
+
+First, clone the repository and build the `totpvault-cli` tool:
+
+```bash
+git clone https://gitlab.com/gfoudree/totpvault
+cd totpvault-cli
+cargo build -r
+```
+The executable will be located at `target/release/totpvault-cli`. You can optionally move it to a directory in your `PATH` for easier access.
 
 ## Find the TOTPVault device
 Insert the device into your computer and search for it
@@ -50,7 +60,7 @@ Time must be synced to the vault on power reset as there is no battery-powered c
 ```bash
 $ totpvault-cli sync-time
 
-Successfully synced time
+Successfully synced time to: 2026-01-10 05:44:50.866425 UTC
 ```
 
 ## Verify time-sync and unlocked status
@@ -62,12 +72,17 @@ Device Status:
 	Total Slots: 64
 	Used Slots: 0
 	Free Slots: 64
-	Current Timestamp: 1743270512 (In-sync)
+	Current Timestamp: 1768023870 delta=2 (In-sync)
+	Version: TOTPVault Version 0.1
+	ED25519 Public Key: IiG0924qxqsDTs7TF8ZAexXJh2ZsRA5hcd9juC0tBGM=
+	Key Fingerprint (SHA256): D9:42:BB:FB:7C:D8:B8:47:3D:AF:72:34:98:2B:44:61:4E:BD:8A:AD:32:97:52:C0:14:9C:96:63:5C:22:39:42
 ```
-`Vault: Unlocked` and `Current Timestamp: 1743270512 (In-sync)` shows that the vault's time is in sync
+`Vault: Unlocked` and `Current Timestamp: 1768023870 (In-sync)` shows that the vault's time is in sync
+
+Note the key fingerprint `D9:42:BB:FB:7C:D8...`. This is the fingerprint of the public key of the device which can be used to authenticate it.
 
 ## Add a credential
-Login to the account you wish to add, and enable a new TOTP credential
+Login to the account you wish to add and enable a new TOTP credential
 
 When the QR code displays, there should be a option such as "can't scan code" which displays a string such as `r7uk mfjw zboh 3x3u ccij bptu leeq thk6`
 

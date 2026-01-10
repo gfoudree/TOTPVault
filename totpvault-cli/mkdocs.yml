@@ -1,9 +1,0 @@
-site_name: TOTPVault
-theme:
-  name: material
-
-nav:
-  - Introduction: index.md
-  - Getting Started: getting-started.md
-  - Commands: commands.md
-  - System Design: system-design.md

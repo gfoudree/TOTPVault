@@ -1,4 +1,3 @@
-use std::path::absolute;
 use clap::{Args, Parser, Subcommand};
 use log::{warn, debug};
 use totpvault_lib::SystemInfoMsg;
@@ -103,11 +102,11 @@ fn dump_device_status(device_status: &SystemInfoMsg) {
         },
     };
 
-    println!("Device Status:\n\tVault: {}\n\tTotal Slots: {}\n\tUsed Slots: {}\n\tFree Slots: {}\n\tCurrent Timestamp: {}\n\tVersion: {}\n\tPublic Key: {}", locked_msg, device_status.total_slots, device_status.used_slots,
+    println!("Device Status:\n\tVault: {}\n\tTotal Slots: {}\n\tUsed Slots: {}\n\tFree Slots: {}\n\tCurrent Timestamp: {}\n\tVersion: {}\n\tED25519 Public Key: {}", locked_msg, device_status.total_slots, device_status.used_slots,
     device_status.free_slots, timestamp_msg, device_status.version_str, device_status.public_key);
 
     if let Ok(hash) = TotpvaultDev::public_key_to_hash(&device_status.public_key) {
-        println!("\tKey Fingerprint: {}", hash);
+        println!("\tKey Fingerprint (SHA256): {}", hash);
     } else {
         debug!("Corrupted public key! Key fingerprint: {}", device_status.public_key);
     }

@@ -10530,7 +10530,7 @@
 				)
 			)
 		)
-		(property "Value" "120"
+		(property "Value" "400"
 			(at 99.06 21.59 90)
 			(effects
 				(font
@@ -13858,7 +13858,7 @@
 				(justify right)
 			)
 		)
-		(property "Value" "120"
+		(property "Value" "400"
 			(at 127 120.6499 0)
 			(effects
 				(font
