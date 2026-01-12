@@ -12,11 +12,15 @@ pub const CMD_UNLOCK_VAULT: u8 = 0x1A;
 pub const CMD_INIT_VAULT: u8 = 0x1B;
 pub const CMD_ATTEST: u8 = 0x1C;
 pub const CMD_LOCK_VAULT: u8 = 0x1E;
-pub const MSG_STATUS_MSG: u8 = 0x01;
-pub const MSG_SYSINFO: u8 = 0x20;
-pub const MSG_ATTESTATION_RESPONSE: u8 = 0x21;
-pub const MSG_LIST_CREDS: u8 = 0x22;
-pub const MSG_TOTP_CODE: u8 = 0x23;
+pub const CMD_GET_SETTINGS: u8 = 0x1F;
+pub const CMD_SET_SETTINGS: u8 = 0x1D;
+
+pub const MSG_STATUS_MSG: u8 = 0x21;
+pub const MSG_SYSINFO: u8 = 0x22;
+pub const MSG_ATTESTATION_RESPONSE: u8 = 0x23;
+pub const MSG_LIST_CREDS: u8 = 0x24;
+pub const MSG_TOTP_CODE: u8 = 0x25;
+pub const MSG_GET_SETTINGS_RESPONSE: u8 = 0x26;
 
 pub const MIN_TOTP_SECRET_LEN: usize = 16;
 pub const MAX_TOTP_SECRET_LEN: usize = 64;
@@ -25,7 +29,14 @@ pub const MIN_DOMAIN_LEN: usize = 2;
 pub const MIN_PW_LEN: usize = 12;
 pub const MAX_PW_LEN: usize = 128;
 const MIN_TIMESTAMP: u64 = 1728590640;
+pub const MAX_SETTING_KEY_LEN: usize = 32;
 pub const NONCE_CHALLENGE_LEN: usize = 64;
+
+// Setting keys and values
+pub const SETTING_USER_PRESENCE_REQUIRED: &str = "pres_reqd";
+pub const DISPLAY_SETTING_USER_PRESENCE_REQUIRED: &str = "user_presence_required"; // User-friendly name
+pub const USER_PRESENCE_YES: &str = "yes";
+pub const USER_PRESENCE_NO: &str = "no";
 
 pub const SUCCESS_MSG: &str = "Success!";
 
@@ -44,6 +55,12 @@ fn print_debug_msg(_msg: String) {
 pub trait Message {
     fn validate(&self) -> bool;
     fn message_type_byte(&self) -> u8;
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Setting {
+    pub key: String,
+    pub value: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Zeroize, ZeroizeOnDrop)]
@@ -117,6 +134,22 @@ pub struct AttestationResponseMsg {
     pub message: String, // Base64 encoded
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GetSettingMsg {
+    pub key: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SetSettingMsg {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GetSettingsResponseMsg {
+    pub settings: Vec<Setting>,
+}
+
 impl Message for TOTPCodeMsg {
     fn validate(&self) -> bool { true }
     fn message_type_byte(&self) -> u8 { MSG_TOTP_CODE }
@@ -141,13 +174,56 @@ impl Message for StatusMsg {
 
 impl Message for AuthenticateChallengeMsg {
     fn validate(&self) -> bool {
-        if self.nonce_challenge.len() > 100 || self.nonce_challenge.len() < 63 {
+        if self.nonce_challenge.len() > 100 || self.nonce_challenge.len() < 63 { // Base64 encoding means length changes, so a bit of leeway here
             print_debug_msg(format!("Nonce size of {} is != {}", self.nonce_challenge.len(), NONCE_CHALLENGE_LEN));
             return false;
         }
         true
     }
     fn message_type_byte(&self) -> u8 { CMD_ATTEST }
+}
+
+impl Message for GetSettingMsg {
+    fn validate(&self) -> bool { self.key.len() > 0 && self.key.len() < MAX_SETTING_KEY_LEN } // No fields to validate
+    fn message_type_byte(&self) -> u8 { CMD_GET_SETTINGS }
+}
+
+impl Message for SetSettingMsg {
+    fn validate(&self) -> bool {
+        if self.key.is_empty() || self.value.is_empty() || self.value.len() > MAX_SETTING_KEY_LEN || self.key.len() > MAX_SETTING_KEY_LEN {
+            print_debug_msg(format!("Setting key or value cannot be empty nor can it be greater than {} bytes", MAX_SETTING_KEY_LEN));
+            return false;
+        }
+        // Validate known settings
+        match self.key.as_str() {
+            SETTING_USER_PRESENCE_REQUIRED => {
+                if self.value.as_str() == USER_PRESENCE_YES || self.value.as_str() == USER_PRESENCE_NO {
+                    true
+                } else {
+                    print_debug_msg(format!("Invalid value for {}: {}", SETTING_USER_PRESENCE_REQUIRED, self.value));
+                    false
+                }
+            },
+            _ => {
+                print_debug_msg(format!("Unknown setting key: {}", self.key));
+                false
+            }
+        }
+    }
+    fn message_type_byte(&self) -> u8 { CMD_SET_SETTINGS }
+}
+
+impl Message for GetSettingsResponseMsg {
+    fn validate(&self) -> bool { true } // No specific validation for the response message itself
+    fn message_type_byte(&self) -> u8 { MSG_GET_SETTINGS_RESPONSE }
+}
+
+/// Returns the user-friendly display name for a given internal setting key.
+pub fn get_setting_display_name(key: &str) -> &str {
+    match key {
+        SETTING_USER_PRESENCE_REQUIRED => DISPLAY_SETTING_USER_PRESENCE_REQUIRED,
+        _ => key, // Return the key itself if no specific display name is found
+    }
 }
 
 impl Message for DeleteEntryMsg {

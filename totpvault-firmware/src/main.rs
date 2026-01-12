@@ -9,6 +9,7 @@ use esp_idf_svc::{
     hal::{gpio::AnyIOPin, prelude::Peripherals, reset::restart, uart, units::Hertz},
     sys,
 };
+use esp_idf_svc::hal::gpio::{Gpio10, Output, PinDriver};
 use log::{error, info};
 use pbkdf2;
 use rmp_serde::Serializer;
@@ -28,6 +29,8 @@ mod storage;
 const SALT_LEN: usize = 32; // 256 bits
 const KDF_ROUNDS: u32 = 100;
 
+const NVS_SETTINGS_KEYS: [&str; 1] = [SETTING_USER_PRESENCE_REQUIRED];
+
 const ENCRYPTION_MAGIC: [u8; 8] = [0xDE, 0xAD, 0xBE, 0xEF, 0xC0, 0xFF, 0xEE, 0x00];
 
 const MAX_TIMESTAMP_SET_DELTA: u64 = 1024;
@@ -38,6 +41,7 @@ struct System {
     vault_unlocked: bool,
     time_set: bool,
     key: [u8; 32],
+    settings: Vec<Setting>,
 }
 
 impl System {
@@ -46,40 +50,62 @@ impl System {
             vault_unlocked: false,
             time_set: false,
             key: [0; 32],
+            settings: Vec::new(),
         }
     }
 
-    fn setup_uart<'a>(&mut self) -> uart::UartDriver<'a> {
-        let peripherals = Peripherals::take().unwrap();
-
-        let config = uart::config::Config::default()
-            .baudrate(Hertz(115_200))
-            .flow_control(uart::config::FlowControl::None);
-        let pins = peripherals.pins;
-
-        #[cfg(target_feature = "a")] {
-            // Compiling for the ESP32-C6
-            let uart: uart::UartDriver = uart::UartDriver::new(
-                peripherals.uart1,
-                pins.gpio16,
-                pins.gpio17,
-                Option::<AnyIOPin>::None,
-                Option::<AnyIOPin>::None,
-                &config,
-            ).expect("Error initializing UART Driver");
-            uart
+    fn load_settings(&mut self) {
+        info!("Loading settings into System object.");
+        for key in NVS_SETTINGS_KEYS {
+            match nvs_read_setting(key) {
+                Ok(value) => {
+                    info!("Setting '{}' loaded from NVS: '{}'.", key, value.clone());
+                    self.settings.push(Setting { key: key.to_string(), value });
+                },
+                Err(e) => {
+                    // If setting not found, initialize with default and save
+                    let default_value = match key {
+                        SETTING_USER_PRESENCE_REQUIRED => USER_PRESENCE_NO,
+                        _ => {
+                            error!("Unknown setting key during load: {}", key);
+                            continue; // Skip unknown settings
+                        }
+                    };
+                    if let Err(write_err) = nvs_write_setting(key, default_value) {
+                        error!("Failed to write default setting {} = {}: {}", key, default_value, write_err);
+                    } else {
+                        self.settings.push(Setting { key: key.to_string(), value: default_value.to_string() });
+                        info!("Setting '{}' not found, initialized with default '{}' and loaded into system state.", key, default_value);
+                    }
+                    info!("Error reading setting '{}': {}", key, e);
+                }
+            }
         }
-        #[cfg(not(target_feature = "a"))] {
-            // Compiling for ESP32-C3
-            let uart: uart::UartDriver = uart::UartDriver::new(
-                peripherals.uart1,
-                pins.gpio21,
-                pins.gpio20,
-                Option::<AnyIOPin>::None,
-                Option::<AnyIOPin>::None,
-                &config,
-            ).expect("Error initializing UART Driver");
-            uart
+        info!("Finished loading settings. Current settings in System object: {:?}", self.settings);
+    }
+
+    fn set_setting(&mut self, set_msg: &SetSettingMsg) -> Result<(), String> {
+        // Validate the setting using the library's Message trait
+        if !set_msg.validate() {
+            return Err("Invalid setting key or value".to_string());
+        }
+
+        // Update in NVS
+        nvs_write_setting(&set_msg.key, &set_msg.value)?;
+
+        // Update in current system state
+        if let Some(setting) = self.settings.iter_mut().find(|s| s.key == set_msg.key) {
+            setting.value = set_msg.value.clone();
+        } else {
+            self.settings.push(Setting { key: set_msg.key.clone(), value: set_msg.value.clone() });
+        }
+        Ok(())
+    }
+
+    fn get_all_settings(&self) -> GetSettingsResponseMsg {
+        info!("Retrieving all settings. Current settings in System object: {:?}", self.settings);
+        GetSettingsResponseMsg {
+            settings: self.settings.clone(),
         }
     }
 
@@ -91,7 +117,7 @@ impl System {
     }
 
     fn init_vault(&mut self, cmd_buf: &[u8; 512], _read_bytes: usize) -> Result<(), String> {
-        let init_msg = rmp_serde::from_slice::<InitVaultMsg>(&cmd_buf[1..]).map_err(|_| "Invalid InitVault message".to_string())?;
+        let init_msg = rmp_serde::from_slice::<InitVaultMsg>(&cmd_buf[1..]).map_err(|e| format!("Invalid InitVault message: {}", e))?;
 
         if !init_msg.validate() {
             return Err("Invalid InitVault message".to_string());
@@ -204,10 +230,10 @@ impl System {
         }
     }
 
-    pub fn unlock_vault(&mut self, cmd_buf: &[u8; 512], _read_bytes: usize) -> Result<(), String> {
-        let unlockmsg = rmp_serde::from_slice::<UnlockMsg>(&cmd_buf[1..]).map_err(|_| "Invalid Unlock message".to_string())?;
+    pub fn unlock_vault(&mut self, cmd_buf: &[u8; 512], _read_bytes: usize, unlocked_led: &mut PinDriver<Gpio10, Output>) -> Result<(), String> {
+        let unlock_msg = rmp_serde::from_slice::<UnlockMsg>(&cmd_buf[1..]).map_err(|_| "Invalid Unlock message".to_string())?;
 
-        if !unlockmsg.validate() {
+        if !unlock_msg.validate() {
             return Err("Invalid Unlock message".to_string());
         }
 
@@ -219,13 +245,13 @@ impl System {
             }
         };
 
-        let key = Self::derive_encryption_key(unlockmsg.password.as_str(), &salt);
+        let key = Self::derive_encryption_key(unlock_msg.password.as_str(), &salt);
 
         #[cfg(debug_assertions)]
         {
             println!("Salt: {:02X?}", salt);
             println!("Key: {:02X?}", key);
-            println!("Pw: {:02X?}", unlockmsg.password);
+            println!("Pw: {:02X?}", unlock_msg.password);
         }
 
         // Test if the vault is unlocked
@@ -239,6 +265,8 @@ impl System {
         self.key = key;
         self.vault_unlocked = true;
 
+        // Set board LED GPIO10 to on for unlocked
+        unlocked_led.set_high().unwrap();
         Ok(())
     }
 
@@ -365,7 +393,7 @@ pub fn send_response_message(uart: &mut uart::UartDriver, msg: &str, error: bool
 }
 
 fn main() {
-    // It is necessary to call this function once. Otherwise some patches to the runtime
+    // It is necessary to call this function once, otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
@@ -380,7 +408,26 @@ fn main() {
     info!("Hardware RNG enabled");
 
     let mut sys = System::new();
-    let mut uart = sys.setup_uart();
+    sys.load_settings(); // Load settings on system initialization
+
+    let peripherals = Peripherals::take().unwrap();
+
+    let config = uart::config::Config::default()
+        .baudrate(Hertz(115_200))
+        .flow_control(uart::config::FlowControl::None);
+
+    let mut unlocked_led = PinDriver::output(peripherals.pins.gpio10).unwrap();
+    unlocked_led.set_low().unwrap();
+    let button = PinDriver::input(peripherals.pins.gpio9).unwrap();
+
+    let mut uart: uart::UartDriver = uart::UartDriver::new(
+            peripherals.uart1,
+            peripherals.pins.gpio21,
+            peripherals.pins.gpio20,
+            Option::<AnyIOPin>::None,
+            Option::<AnyIOPin>::None,
+            &config,
+    ).expect("Error initializing UART Driver");
 
     info!("UART enabled");
     if let Err(e) = System::first_boot_hook() {
@@ -396,13 +443,16 @@ fn main() {
         if let Ok(num_bytes_read) = uart.read(&mut buf, 10) {
             if num_bytes_read > 0 {
                 let command = buf[0];
+                info!("Received command: {:#02x}", command);
 
-                // Only the CMD_LOCK_VAULT, CMD_DEV_INFO, CMD_LIST commands are one byte, the rest should be 2+ bytes
+                // Only the CMD_LOCK_VAULT, CMD_DEV_INFO, CMD_LIST, CMD_GET_SETTINGS commands are one byte, the rest should be 2+ bytes
                 let min_required_len = match command {
-                    CMD_LOCK_VAULT | CMD_DEV_INFO | CMD_LIST => 1,
+                    CMD_LOCK_VAULT | CMD_DEV_INFO | CMD_LIST | CMD_GET_SETTINGS => 1,
                     _ =>  2,
                 };
                 if num_bytes_read < min_required_len {
+                    error!("Received command {:#02x} with insufficient length: {} bytes, expected at least {}", command, num_bytes_read, min_required_len);
+                    send_response_message(&mut uart, "Invalid command length", true);
                     continue;
                 }
 
@@ -480,10 +530,11 @@ fn main() {
                         }
                     }
                     CMD_UNLOCK_VAULT => {
-                        match sys.unlock_vault(&buf, num_bytes_read) {
+                        match sys.unlock_vault(&buf, num_bytes_read, &mut unlocked_led) {
                             Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
                             Err(_) => send_response_message(&mut uart, "Incorrect Password", true),
                         };
+
                     }
                     CMD_INIT_VAULT => match sys.init_vault(&buf, num_bytes_read) {
                         Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
@@ -505,9 +556,35 @@ fn main() {
                     CMD_LOCK_VAULT => {
                         sys.vault_unlocked = false;
                         sys.key.zeroize();
+                        unlocked_led.set_low().unwrap();
                         send_response_message(&mut uart, SUCCESS_MSG, false);
                     }
-                    _ => {}
+                    CMD_GET_SETTINGS => {
+                        let response_msg = sys.get_all_settings();
+                        send_message(&mut uart, &response_msg);
+                    }
+                    CMD_SET_SETTINGS => {
+                        if sys.vault_unlocked == false {
+                            send_response_message(&mut uart, "Vault Locked!", true);
+                        } else {
+                            match rmp_serde::from_slice::<SetSettingMsg>(&buf[1..]) {
+                                Ok(set_msg) => {
+                                    match sys.set_setting(&set_msg) {
+                                        Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
+                                        Err(e) => send_response_message(&mut uart, e.as_str(), true),
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Error deserializing SetSettingMsg: {}", e);
+                                    send_response_message(&mut uart, "Invalid SetSetting message", true);
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        error!("Unknown command: {:#02x}", command);
+                        send_response_message(&mut uart, "Unknown command", true);
+                    }
                 }
             }
         }

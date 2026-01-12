@@ -18,6 +18,7 @@ FLASH_ENCRYPTION_AES_KEYFILE=flash_encryption_key.bin
 FLASH_IMAGE=flash.bin
 EFUSE_FILE=qemu_efuse.bin
 
+
 efuse_cmd() {
 	espefuse.py -p $ESPPORT --chip esp32c3 --before=no_reset --do-not-confirm "$@"
 }
@@ -93,7 +94,7 @@ verify_signature() {
   espsecure.py verify_signature --version 2 --keyfile $SECUREBOOT_RSA_KEYFILE $ELF_FIRMWARE_SIGNED
 
   echo "Checking bootloader..."
-  espsecure.py signature_info_v2 $BOOTLOADER
+  espsecure.py signature_info_v2 $BOOTLOADER_SIGNED
   espsecure.py verify_signature --version 2 --keyfile $SECUREBOOT_RSA_KEYFILE $BOOTLOADER_SIGNED
 }
 
@@ -106,7 +107,6 @@ qemu_build_efuses() {
                       -drive file=$EFUSE_FILE,if=none,format=raw,id=efuse \
                       -global driver=nvram.esp32c3.efuse,property=drive,value=efuse \
                       -serial tcp::5555,server,nowait
-
 }
 
 qemu_test() {
@@ -119,10 +119,13 @@ qemu_test() {
 }
 
 flash_device() {
-  esptool.py --chip esp32c3 -p /dev/ttyACM0 write_flash --no-compress --force --flash_mode dio --flash_freq 80m --flash_size 4MB 0x0 $BOOTLOADER_ENCRYPTED 0x10000 $PARTITION_TABLE_ENCRYPTED 0x30000 $ELF_FIRMWARE_SIGNED_ENCRYPTED
+  esptool.py --chip esp32c3 -p $ESPPORT --no-stub write_flash --no-compress --force --flash_mode dio --flash_freq 80m --flash_size 4MB 0x0 $BOOTLOADER_ENCRYPTED 0x10000 $PARTITION_TABLE_ENCRYPTED 0x30000 $ELF_FIRMWARE_SIGNED_ENCRYPTED
+  rm $ELF_FIRMWARE
 }
+
+# Source the export.sh in the ESP-IDF folder first
 
 sign_firmware
 verify_signature
-qemu_test
-#flash_device
+#qemu_test
+flash_device

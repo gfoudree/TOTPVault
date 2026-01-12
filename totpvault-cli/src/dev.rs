@@ -19,9 +19,7 @@ use crate::comm::{check_status_msg, send_command, send_message};
 use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 use rand_latest;
 
-pub struct TotpvaultDev {
-
-}
+pub struct TotpvaultDev {}
 
 impl TotpvaultDev {
     pub fn timesync_check(device_timestamp: u64) -> bool {
@@ -107,17 +105,47 @@ impl TotpvaultDev {
         if resp[0] != MSG_SYSINFO {
             // Dump error out
             if resp[0] == MSG_STATUS_MSG {
-                let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
+                let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| format!("Failed to deserialize StatusMsg: {}", e))?;
                 return Err(format!("Error getting device status: {}", msg.message));
             }
             else {
-                return Err("Invalid response message from device!".to_string());
+                return Err(format!("Invalid response message type from device! Expected {:#02x}, got {:#02x}", MSG_SYSINFO, resp[0]));
             }
         }
         let mut cursor_buf = Cursor::new(resp[1..].to_vec());
-        let msg: SystemInfoMsg = Deserialize::deserialize(&mut Deserializer::new(& mut cursor_buf)).map_err(|e| e.to_string())?;
+        let msg: SystemInfoMsg = Deserialize::deserialize(&mut Deserializer::new(& mut cursor_buf)).map_err(|e| format!("Failed to deserialize SystemInfoMsg: {}", e))?;
 
         Ok(msg)
+    }
+
+    pub fn get_all_settings(dev_path: &str, timeout: Option<u64>) -> Result<Vec<Setting>, String> {
+        let resp = send_command(dev_path, CMD_GET_SETTINGS, timeout.unwrap_or(2000))?;
+        if resp[0] == MSG_GET_SETTINGS_RESPONSE {
+            let settings_list_msg: GetSettingsResponseMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| format!("Failed to deserialize GetSettingsResponseMsg: {}", e))?;
+            Ok(settings_list_msg.settings)
+        } else {
+            if resp[0] == MSG_STATUS_MSG {
+                let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| format!("Failed to deserialize StatusMsg: {}", e))?;
+                Err(format!("Error getting device settings: {}", msg.message))
+            }
+            else {
+                Err(format!("Invalid response message type from device! Expected {:#02x}, got {:#02x}", MSG_GET_SETTINGS_RESPONSE, resp[0]))
+            }
+        }
+    }
+
+    pub fn set_setting(dev_path: &str, timeout: Option<u64>, key: &str, value: &str) -> Result<(), String> {
+        let set_msg = SetSettingMsg {
+            key: key.to_string(),
+            value: value.to_string(),
+        };
+
+        if !set_msg.validate() {
+            return Err("Invalid setting key or value. Check 'view-config' for allowed settings and values.".to_string());
+        }
+
+        let resp = send_message(dev_path, set_msg, CMD_SET_SETTINGS, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
+        check_status_msg(resp)
     }
 
     pub fn list_stored_credentials(dev_path: &str, timeout: Option<u64>) -> Result<Vec<CredentialInfo>, String> {
