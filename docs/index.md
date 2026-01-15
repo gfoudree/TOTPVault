@@ -6,7 +6,7 @@ TOTPVault is a secure hardware vault for storing TOTP codes for two-factor authe
 
 For a detailed look at the hardware components, see the [Hardware Overview](hardware.md).
 
-![Device](/images/pcb.png){ width="30%" height="30%" .center }
+![Device](images/pcb.png)
 # Websites Tested
 TOTPVault should work on almost all TOTP-based authentication sites. The list below just shows which ones have been validated to be working
 

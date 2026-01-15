@@ -25,6 +25,9 @@ TOTPVault uses an RISC-V ESP32-C3 microcontroller to perform cryptographic opera
 - USB stack isolated to separate chip to minimize attack surface
 - Hardware locked down (JTAG disabled, eFuses set, etc)
 
+# System Architecture
+[System Architecture](https://gfoudree.github.io/TOTPVault/system-design/)
+
 ## Installation
 
 First, clone the repository and build the `totpvault-cli` tool and build it:
@@ -38,7 +41,7 @@ cargo build -r
 The CLI program will be located at: `target/release/totpvault-cli`
 ## Documentation
 
-[Documentation](docs/)
+[Documentation](https://gfoudree.github.io/TOTPVault/)
 
 # FAQ
 
