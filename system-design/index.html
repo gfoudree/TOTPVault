@@ -611,26 +611,27 @@
 <li>Encryption keys derived from vault password using PBKDF2, device has no knowledge of decryption keys without vault password</li>
 <li>The keys are never stored on the device (ie. the device cannot decrypt any secrets without the user providing the vault password)</li>
 <li>Encrypted TOTP secrets are stored in NVS (flash) on the same die as the microcontroller, making it difficult to sniff/extract them</li>
-<li>Secrets are zeroed from memory immediately after use</li>
+<li>Secrets are zeroed from memory immediately after use
+    <br/><br/>
+    <img alt="System Diagram" src="../images/secret_diagram.png" /></li>
 </ul>
-<p><img alt="System Diagram" class="center" src="/images/secret_diagram.png" /></p>
 <h3 id="system-firmware">System Firmware</h3>
 <ul>
 <li>ESP32-C3 firmware has secure boot enabled with RSA 3072 signature verification, ensuring only trusted firmware can run</li>
 <li>Firmware is encrypted using hardware-accelerated AES, providing an additional layer of security and mitigating TOCTOU attacks on secure boot</li>
 <li>Firmware is written in Rust with minimal <code>unsafe</code> regions</li>
 <li>Device can be attested with a challenge to prove itself</li>
-<li>
-<p>ESP32-C3 hardware random number generator is used for cryptographic operations</p>
-<p><img alt="HW RNG Design" class="center" src="/images/hwrng_diagram.png" /></p>
-</li>
+<li>ESP32-C3 hardware random number generator is used for cryptographic operations
+    <br/><br/>
+    <img alt="HW RNG Design" src="../images/hwrng_diagram.png" /></li>
 </ul>
 <h3 id="hardware-design">Hardware Design</h3>
 <ul>
 <li>TOTP secrets are encrypted and stored in on-chip flash memory, substantially complicating attacks to dump or snoop secrets</li>
 <li>
-<p>USB interface is delegated to a separate chip (CH343P) from the main microcontroller (ESP32-C3) in order to isolate any USB-level exploits from the main uC</p>
-<p><img alt="USB Isolation" class="center" src="/images/usb_isolation_diagram.png" /></p>
+<p>USB interface is delegated to a separate chip (CH343P) from the main microcontroller (ESP32-C3) in order to isolate any USB-level exploits from the main uC
+    <br/><br/>
+    <img alt="USB Isolation" src="../images/usb_isolation_diagram.png" /></p>
 </li>
 <li>
 <p>JTAG interfaces are disabled and eFuses locked down</p>
