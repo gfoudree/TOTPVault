@@ -1,12 +1,12 @@
 # System Design
 
-TOTPVault is a device designed to store TOTP secrets in hardware and generate TOTP codes on demand. Built on an ESP32-C3 chip with advanced security features, TOTPVault ensures that your credentials are protected against unauthorized access.
-
 ## Security Features
 
 ### Secret Storage
   - TOTP secrets are encrypted at rest using AES-256-GCM, ensuring data confidentiality
   - Encryption keys derived from vault password using PBKDF2, device has no knowledge of decryption keys without vault password
+  - The keys are never stored on the device (ie. the device cannot decrypt any secrets without the user providing the vault password)
+  - Encrypted TOTP secrets are stored in NVS (flash) on the same die as the microcontroller, making it difficult to sniff/extract them
   - Secrets are zeroed from memory immediately after use
 
 ![System Diagram](/images/secret_diagram.png){: .center }

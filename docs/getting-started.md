@@ -5,8 +5,8 @@
 First, clone the repository and build the `totpvault-cli` tool:
 
 ```bash
-git clone https://gitlab.com/gfoudree/totpvault
-cd totpvault-cli
+git clone https://github.com/gfoudree/totpvault
+cd totpvault/totpvault-cli
 cargo build -r
 ```
 The executable will be located at `target/release/totpvault-cli`. You can optionally move it to a directory in your `PATH` for easier access.
@@ -93,6 +93,8 @@ $ totpvault-cli add-credential --domain-name google.com
 Enter TOTP Secret Key:
 Successfully added credential
 ```
+
+It is wise to keep a backup 2FA device/method available in case you lose your TOTPVault token!
 
 ## List credentials
 ```bash

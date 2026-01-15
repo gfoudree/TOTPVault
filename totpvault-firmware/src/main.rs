@@ -103,7 +103,6 @@ impl System {
     }
 
     fn get_all_settings(&self) -> GetSettingsResponseMsg {
-        info!("Retrieving all settings. Current settings in System object: {:?}", self.settings);
         GetSettingsResponseMsg {
             settings: self.settings.clone(),
         }
@@ -135,12 +134,6 @@ impl System {
 
         // Derive the encryption key
         let enc_key = Self::derive_encryption_key(init_msg.password.as_str(), &salt);
-        #[cfg(debug_assertions)]
-        {
-            println!("Init Salt: {:02X?}", salt);
-            println!("Init Key: {:02X?}", enc_key);
-            println!("Pw: {:02X?}", init_msg.password);
-        }
 
         // Wipe all entries
         for i in 0..MAX_CREDENTIALS {
@@ -149,19 +142,6 @@ impl System {
 
         // Init metadata
         nvs_write_blob_encrypted("magic", &ENCRYPTION_MAGIC, &enc_key)?;
-
-        #[cfg(debug_assertions)] {
-            use esp_idf_sys::{nvs_get_stats, nvs_stats_t, ESP_OK};
-            let mut stats: nvs_stats_t = Default::default();
-            unsafe {
-                let res = nvs_get_stats(core::ptr::null_mut(), &mut stats);
-                if res != ESP_OK {
-                    println!("Error calling nvs_get_stats!");
-                } else {
-                    println!("NVS Stats:\nFreeEntries: {}\n UsedEntries: {}\nAvailable Entries: {}\nAll Entries: {}", stats.free_entries, stats.used_entries, stats.available_entries, stats.total_entries);
-                }
-            }
-        }
 
         Ok(())
     }
@@ -182,10 +162,6 @@ impl System {
         match sign_challenge(&challenge_bytes) {
             Ok(sig) => {
                 let signature_encoded = BASE64_STANDARD.encode(sig.to_vec());
-                #[cfg(debug_assertions)] {
-                    println!("Public Key: {}\nChallenge: {}\nSignature: {}", get_ed25519_public_key_nvs()?, challenge_msg.nonce_challenge, signature_encoded);
-                }
-
                 Ok(AttestationResponseMsg{ message: signature_encoded })
             }
             Err(e) => Err(format!("Error signing challenge! {}", e))
@@ -213,18 +189,10 @@ impl System {
                 let mut cred = Credential::get_credential(index, &self.key)?;
 
                 let totp_code = Credential::gen_totp(&cred)?;
-                #[cfg(debug_assertions)]
-                {
-                    println!("[TOTP] Current time: {}\t Secret Key: {}", Utc::now().timestamp(), &cred.totp_secret_decrypted.clone().unwrap());
-                }
                 cred.totp_secret_decrypted.zeroize();
                 Ok(totp_code)
             }
             Err(_e) => {
-                #[cfg(debug_assertions)]
-                {
-                    println!("Unlock message decoding error: {:?}", _e);
-                }
                 Err("Invalid display code message".to_string())
             }
         }
@@ -246,13 +214,6 @@ impl System {
         };
 
         let key = Self::derive_encryption_key(unlock_msg.password.as_str(), &salt);
-
-        #[cfg(debug_assertions)]
-        {
-            println!("Salt: {:02X?}", salt);
-            println!("Key: {:02X?}", key);
-            println!("Pw: {:02X?}", unlock_msg.password);
-        }
 
         // Test if the vault is unlocked
         let decrypted_magic = nvs_read_blob_encrypted("magic", &key).map_err(|_| "Unable to decrypt value. Corrupted data or wrong password!".to_string())?;
@@ -372,9 +333,6 @@ pub fn send_message<T: Message + Serialize + Debug>(uart: &mut uart::UartDriver,
     let mut buf = Vec::new();
     buf.push(msg.message_type_byte()); // Add the message type byte to the beginning
 
-    #[cfg(debug_assertions)]
-    println!("send_message: {:?}", msg);
-
     // Add the remaining bytes into the buffer
     let m = msg.serialize(&mut Serializer::new(&mut buf));
     if m.is_err() {
@@ -387,9 +345,6 @@ pub fn send_message<T: Message + Serialize + Debug>(uart: &mut uart::UartDriver,
 pub fn send_response_message(uart: &mut uart::UartDriver, msg: &str, error: bool) {
     let status_msg = StatusMsg { error, message: msg.to_string() };
     send_message(uart, &status_msg);
-
-    #[cfg(debug_assertions)]
-    println!("Send response message: {}", &status_msg.message);
 }
 
 fn main() {
@@ -420,22 +375,21 @@ fn main() {
     unlocked_led.set_low().unwrap();
     let button = PinDriver::input(peripherals.pins.gpio9).unwrap();
 
-    let mut uart: uart::UartDriver = uart::UartDriver::new(
-            peripherals.uart1,
-            peripherals.pins.gpio21,
-            peripherals.pins.gpio20,
-            Option::<AnyIOPin>::None,
-            Option::<AnyIOPin>::None,
-            &config,
-    ).expect("Error initializing UART Driver");
-
-    info!("UART enabled");
     if let Err(e) = System::first_boot_hook() {
         error!("Critical error on first boot! {e}");
         restart();
     }
 
-    info!("Boot complete!");
+    // After this line, logging stops working as UART is taken over for host <-> dev communication
+    let mut uart: uart::UartDriver = uart::UartDriver::new(
+        peripherals.uart1,
+        peripherals.pins.gpio21,
+        peripherals.pins.gpio20,
+        Option::<AnyIOPin>::None,
+        Option::<AnyIOPin>::None,
+        &config,
+    ).expect("Error initializing UART Driver");
+
     loop {
         std::thread::sleep(std::time::Duration::from_millis(100));
 
@@ -443,7 +397,6 @@ fn main() {
         if let Ok(num_bytes_read) = uart.read(&mut buf, 10) {
             if num_bytes_read > 0 {
                 let command = buf[0];
-                info!("Received command: {:#02x}", command);
 
                 // Only the CMD_LOCK_VAULT, CMD_DEV_INFO, CMD_LIST, CMD_GET_SETTINGS commands are one byte, the rest should be 2+ bytes
                 let min_required_len = match command {
@@ -451,7 +404,6 @@ fn main() {
                     _ =>  2,
                 };
                 if num_bytes_read < min_required_len {
-                    error!("Received command {:#02x} with insufficient length: {} bytes, expected at least {}", command, num_bytes_read, min_required_len);
                     send_response_message(&mut uart, "Invalid command length", true);
                     continue;
                 }
@@ -543,9 +495,6 @@ fn main() {
                     CMD_ATTEST => {
                         // Generate pub/priv keypair during vault init or first boot (?) if first boot, we have to make sure we NEVER wipe it! Maybe store in eFuse
                         // Respond to a challenge and authenticate the HW to avoid evil maid attacks
-                        #[cfg(debug_assertions)]
-                        println!("Challenge Raw Bytes: {}", hex::encode(&buf));
-
                         match sys.attest(&buf) {
                             Ok(attestation_response_msg) => {
                                 send_message(&mut uart, &attestation_response_msg);
@@ -574,16 +523,14 @@ fn main() {
                                         Err(e) => send_response_message(&mut uart, e.as_str(), true),
                                     }
                                 }
-                                Err(e) => {
-                                    error!("Error deserializing SetSettingMsg: {}", e);
+                                Err(_e) => {
                                     send_response_message(&mut uart, "Invalid SetSetting message", true);
                                 }
                             }
                         }
                     }
                     _ => {
-                        error!("Unknown command: {:#02x}", command);
-                        send_response_message(&mut uart, "Unknown command", true);
+                        send_response_message(&mut uart, format!("Unknown command: {:#02x}", command).as_str(), true);
                     }
                 }
             }

@@ -1,36 +1,64 @@
-
 # TOTPVault
 
 TOTPVault is a secure hardware vault for storing TOTP codes for two-factor authentication. It is compatible with websites and applications which support authenticators such as Google Authenticator or Authy.
 
+TOTPVault uses an RISC-V ESP32-C3 microcontroller to perform cryptographic operations and storage/generation of TOTP codes with a separate chip to run an isolated USB stack.
+
+<p align="center">
+    <img width="30%" height="30%" src="docs/images/pcb.png">
+</p>
+
+## Demo
+
+![demo](docs/images/demo.gif)
+
+## Features
+
+- Support for up to 64 credentials
+- Cross platform, no drivers needed for Linux/MacOS
+- Open source firmware, software, and hardware!
+
+### Security Features (summary)
+- TOTP secrets stored with AES256, decryption key derived from vault password via PBKDF2
+- Trusted firmware via secure boot with attestation available
+- ESP32-C3 HW RNG used for cryptographic operations
+- USB stack isolated to separate chip to minimize attack surface
+- Hardware locked down (JTAG disabled, eFuses set, etc)
+
 ## Installation
 
-First, clone the repository and build the `totpvault-cli` tool:
+First, clone the repository and build the `totpvault-cli` tool and build it:
 
 ```bash
-git clone https://gitlab.com/gfoudree/totpvault
-cd totpvault-cli
+git clone https://github.com/gfoudree/totpvault
+cd totpvault/totpvault-cli
 cargo build -r
 ```
-The executable will be located at `target/release/totpvault-cli`. You can optionally move it to a directory in your `PATH` for easier access.
 
-## Secrets
-Secrets are encrypted with AES256-CBC encryption. Keys are derived from the user-supplied vault password which is fed into PBKDF2 to generate a cryptographically-secure key. The keys are *never* stored on the device (ie. the device cannot decrypt any secrets without the user providing the vault password). All cryptographic operations are done in software and do not use the ESP32’s hardware encryption modules except for the HWRNG.
+The CLI program will be located at: `target/release/totpvault-cli`
+## Documentation
 
-Secrets are encrypted and stored in NVS (flash) on the same die as the microcontroller, making it hard to sniff or extract them. No plain-text secrets are stored (except in memory). Once secrets are no longer needed, they are zeroed out in memory.
+[Documentation](docs/)
 
-## Platform
-The system firmware is written in Rust and runs on the ESP32-C3 (RISC-V) chip. Firmware is verified via secure boot which help mitigate evil-maid or other attacks.
+# FAQ
 
-## FAQ
+#### Why choose ESP32-C3 for the microcontroller?
+The ESP32 chips have strong hardware security features such as HWRNG, encryption/hashing support, secure boot, and encrypted flash.
 
-#### Why ESP32-C3?
+Other chips have some or all of these features, however the ESP32-C3 is [PSA-L1 certified](https://products.psacertified.org/products/esp32-c3-series/certificates#security-level-1), has good support for Rust firmware, and is affordable.
 
-The ESP32 platform was chosen as it provides security features such as secure boot and hardware RNG. It is affordable and has a decent track record for security.
+#### The ESP32 has Wifi/Bluetooth, does this device use either?
+No, there is no antenna on the board and the Wifi/Bluetooth stack is disabled in the firmware.
 
-## Roadmap
+#### If somebody steals my device, can they generate TOTP codes for my accounts?
+No, as long as your password is strong they cannot unlock the vault and generate codes.
 
-- Support additional ESP32 hardware security features such as the Trusted Execution Engine (TEE)
+## Authors
 
-- Support USB-C connectors
+- [@gfoudree](https://www.github.com/gfoudree)
+
+
+## License
+
+[GNU GPLv3](https://choosealicense.com/licenses/gpl-3.0/)
 

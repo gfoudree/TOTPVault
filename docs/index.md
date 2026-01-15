@@ -1,6 +1,8 @@
 # Introduction
 
-Welcome to the TOTPVault documentation. This guide will help you understand how to use and manage your TOTPVault device.
+# TOTPVault
+
+TOTPVault is a secure hardware vault for storing TOTP codes for two-factor authentication. It is compatible with websites and applications which support authenticators such as Google Authenticator or Authy.
 
 For a detailed look at the hardware components, see the [Hardware Overview](hardware.md).
 

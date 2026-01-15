@@ -98,14 +98,8 @@ impl Credential {
         )
         .map_err(|e| format!("Error decrypting credential in slot {}. {}", index, e))?;
 
-        #[cfg(debug_assertions)]
-        println!("TOTP Secret: {:?}", plaintext);
-
         // TODO: check that this is valid
         cred.totp_secret_decrypted = Some(String::from_utf8(plaintext).map_err(|e| format!("Error with decrypted TOTP secret: {}", e))?);
-
-        #[cfg(debug_assertions)]
-        println!("Cred: {:?}", cred);
 
         Ok(cred)
     }

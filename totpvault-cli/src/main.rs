@@ -207,8 +207,8 @@ fn main() {
             let mut response = String::new();
             std::io::stdin().read_line(&mut response).unwrap();
             if response.to_lowercase().trim() == "yes" {
-                let mut p1 = rpassword::prompt_password("Enter vault password: ").unwrap();
-                let mut p2 = rpassword::prompt_password("Enter vault password (confirm): ").unwrap();
+                let mut p1 = rpassword::prompt_password("Enter new vault password: ").unwrap();
+                let mut p2 = rpassword::prompt_password("Enter new vault password (confirm): ").unwrap();
 
                 if p1.len() == 0 || p2.len() == 0 {
                     eprintln!("Did not enter a password");

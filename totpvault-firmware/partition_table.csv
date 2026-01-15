@@ -3,4 +3,3 @@
 nvs,      data, nvs,     0x15000,  0x12000,
 phy_init, data, phy,     0x27000,  0x1000,
 factory,  app,  factory, 0x30000,  3M,
-
