@@ -2,7 +2,7 @@
 
 The TOTPVault device is designed with a focus on security and simplicity. Below is a detailed overview of its components and design.
 
-![TOTPVault PCB Render](/images/breakout.png){: .center }
+![TOTPVault PCB Render](images/breakout.png)
 
 ## Specifications
 
