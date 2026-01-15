@@ -1,0 +1,36 @@
+[data-md-color-scheme="slate"] {
+    /* Deep Navy/Blue Backgrounds instead of Grey */
+    --md-default-bg-color:               #2e3440; /* Base Background (Nord0) */
+    --md-default-bg-color--light:        #3b4252; /* Lighter UI elements (Nord1) */
+    --md-default-fg-color:               #d8dee9; /* Soft White Text */
+    --md-default-fg-color--light:        #88c0d0; /* Pastel Blue Subtext */
+
+    /* Header & Sidebar Navigation */
+    --md-primary-fg-color:               #3b4252; /* Header Background */
+    --md-primary-fg-color--dark:         #2e3440; /* Darker Header */
+    --md-primary-bg-color:               #88c0d0; /* Text in Header */
+
+    /* The "Aurora" Accents (Pastel Pop) */
+    --md-accent-fg-color:                #a3be8c; /* Pastel Sage Green */
+    --md-accent-bg-color:                #b48ead; /* Pastel Pink/Purple */
+
+    /* Code Blocks (Nord Dark Theme) */
+    --md-code-bg-color:                  #242933;
+    --md-code-fg-color:                  #eceff4;
+}
+
+[data-md-color-scheme="default"] {
+    /* Soft Frost Light Mode */
+    --md-primary-fg-color:        #81a1c1; /* Nord9: Muted Blue */
+    --md-accent-fg-color:         #b48ead; /* Nord15: Pastel Purple */
+}
+
+/* Make the sidebar text pop with color */
+[data-md-color-scheme="slate"] .md-nav__link--active {
+    color: #8fbcbb; /* Pastel Mint active links */
+}
+
+.center {
+    display: block;
+    margin: 0 auto;
+}
