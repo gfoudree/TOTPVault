@@ -81,9 +81,8 @@ struct PublicKeyArgs {
 
 #[derive(Args)]
 struct SetConfigArgs {
-    #[arg(long, value_parser = ["yes", "no"], help = "Require user presence for TOTP code generation ('yes' or 'no')")]
-    user_presence_required: Option<String>,
-    // Add other specific settings here as they are introduced
+    #[arg(long, value_parser = ["on", "off"], help = "Set the vault to automatically lock after 10min ('on' or 'off')")]
+    vault_autolock: Option<String>,
 }
 
 fn get_device(cli: &Cli) -> Result<String, ()> {
@@ -294,8 +293,8 @@ fn main() {
             match TotpvaultDev::get_all_settings(device, cli.timeout) {
                 Ok(settings) => {
                     println!("Device Settings:");
-                    for setting in settings {
-                        println!("\t{}: {}", totpvault_lib::get_setting_display_name(&setting.key).blue(), setting.value.green());
+                    for (setting, value) in settings.iter() {
+                        println!("\t{}: {}", totpvault_lib::get_setting_display_name(setting.as_str()).blue(), value.green());
                     }
                 }
                 Err(error) => eprintln!("Error retrieving device settings: {}", error),
@@ -304,18 +303,16 @@ fn main() {
         Commands::SetConfig(args) => {
             let mut all_settings_successful = true;
 
-            if let Some(value) = args.user_presence_required {
-                let key = totpvault_lib::SETTING_USER_PRESENCE_REQUIRED;
-                match TotpvaultDev::set_setting(device, cli.timeout, key, &value) {
-                    Ok(_) => println!("Successfully set setting '{}' to '{}'", key, value),
+            if let Some(value) = args.vault_autolock {
+                let setting_key = totpvault_lib::SETTING_AUTOLOCK;
+                match TotpvaultDev::set_setting(device, cli.timeout, setting_key, &value) {
+                    Ok(_) => println!("Successfully set setting '{}' to '{}'", setting_key, value),
                     Err(error) => {
-                        eprintln!("Error setting config '{}': {}", key, error);
+                        eprintln!("Error setting config '{}': {}", setting_key, error);
                         all_settings_successful = false;
                     }
                 }
             }
-            // Add similar blocks for other settings here as they are implemented
-
             if all_settings_successful {
                 println!("{}", "All specified configurations updated.".green());
             } else {

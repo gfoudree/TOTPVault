@@ -1,3 +1,5 @@
+use core::cell::Cell;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
@@ -9,7 +11,7 @@ use esp_idf_svc::{
     hal::{gpio::AnyIOPin, prelude::Peripherals, reset::restart, uart, units::Hertz},
     sys,
 };
-use esp_idf_svc::hal::gpio::{Gpio10, Output, PinDriver};
+use esp_idf_svc::hal::gpio::{Gpio10, InterruptType, Output, PinDriver, Pull};
 use log::{error, info};
 use pbkdf2;
 use rmp_serde::Serializer;
@@ -18,7 +20,8 @@ use sha2::Sha256;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 use totpvault_lib;
-
+use critical_section::Mutex;
+use esp_idf_svc::hal::timer::{TimerConfig, TimerDriver};
 use storage::*;
 use totpvault_lib::*;
 
@@ -29,43 +32,39 @@ mod storage;
 const SALT_LEN: usize = 32; // 256 bits
 const KDF_ROUNDS: u32 = 100;
 
-const NVS_SETTINGS_KEYS: [&str; 1] = [SETTING_USER_PRESENCE_REQUIRED];
-
 const ENCRYPTION_MAGIC: [u8; 8] = [0xDE, 0xAD, 0xBE, 0xEF, 0xC0, 0xFF, 0xEE, 0x00];
 
 const MAX_TIMESTAMP_SET_DELTA: u64 = 1024;
-
 const NVS_KEY_ED25519: &str = "ED25519_KEY";
 
+// Static (global) variable for 'static lifetime. Mutex for safety, Cell<bool> allows multiple mutable references by only allowing 'interior mutability'
+static VAULT_STATUS_UNLOCKED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 struct System {
-    vault_unlocked: bool,
     time_set: bool,
     key: [u8; 32],
-    settings: Vec<Setting>,
+    settings: HashMap<String, String>,
 }
 
 impl System {
     fn new() -> System {
         System {
-            vault_unlocked: false,
             time_set: false,
             key: [0; 32],
-            settings: Vec::new(),
+            settings: HashMap::new(),
         }
     }
 
     fn load_settings(&mut self) {
-        info!("Loading settings into System object.");
-        for key in NVS_SETTINGS_KEYS {
+        // Iterate through all of the known settings by their NVS keys
+        for key in ALL_SETTINGS {
             match nvs_read_setting(key) {
                 Ok(value) => {
-                    info!("Setting '{}' loaded from NVS: '{}'.", key, value.clone());
-                    self.settings.push(Setting { key: key.to_string(), value });
+                    self.settings.insert(key.to_string(), value);
                 },
-                Err(e) => {
-                    // If setting not found, initialize with default and save
+                Err(_) => {
+                    // If setting not found in the NVS, initialize with default and save
                     let default_value = match key {
-                        SETTING_USER_PRESENCE_REQUIRED => USER_PRESENCE_NO,
+                        SETTING_AUTOLOCK => AUTOLOCK_OFF,
                         _ => {
                             error!("Unknown setting key during load: {}", key);
                             continue; // Skip unknown settings
@@ -74,18 +73,14 @@ impl System {
                     if let Err(write_err) = nvs_write_setting(key, default_value) {
                         error!("Failed to write default setting {} = {}: {}", key, default_value, write_err);
                     } else {
-                        self.settings.push(Setting { key: key.to_string(), value: default_value.to_string() });
-                        info!("Setting '{}' not found, initialized with default '{}' and loaded into system state.", key, default_value);
+                        self.settings.insert(key.to_string(), default_value.to_string());
                     }
-                    info!("Error reading setting '{}': {}", key, e);
                 }
             }
         }
-        info!("Finished loading settings. Current settings in System object: {:?}", self.settings);
     }
 
     fn set_setting(&mut self, set_msg: &SetSettingMsg) -> Result<(), String> {
-        // Validate the setting using the library's Message trait
         if !set_msg.validate() {
             return Err("Invalid setting key or value".to_string());
         }
@@ -94,11 +89,8 @@ impl System {
         nvs_write_setting(&set_msg.key, &set_msg.value)?;
 
         // Update in current system state
-        if let Some(setting) = self.settings.iter_mut().find(|s| s.key == set_msg.key) {
-            setting.value = set_msg.value.clone();
-        } else {
-            self.settings.push(Setting { key: set_msg.key.clone(), value: set_msg.value.clone() });
-        }
+        self.settings.insert(set_msg.key.to_string(), set_msg.value.to_string());
+
         Ok(())
     }
 
@@ -122,7 +114,7 @@ impl System {
             return Err("Invalid InitVault message".to_string());
         }
 
-        self.vault_unlocked = false;
+        critical_section::with(|cs| VAULT_STATUS_UNLOCKED.borrow(cs).set(false));
 
         // Erase NVS partition
         format_nvs_partition()?;
@@ -224,7 +216,7 @@ impl System {
         }
 
         self.key = key;
-        self.vault_unlocked = true;
+        critical_section::with(|cs| VAULT_STATUS_UNLOCKED.borrow(cs).set(true));
 
         // Set board LED GPIO10 to on for unlocked
         unlocked_led.set_high().unwrap();
@@ -316,11 +308,11 @@ impl System {
             free_slots: 0,
             current_timestamp: Utc::now().timestamp() as u64,
             version_str: format!("TOTPVault Version {}", env!("CARGO_PKG_VERSION")),
-            vault_unlocked: self.vault_unlocked,
+            vault_unlocked: get_vault_unlock_status(),
             public_key: pubkey,
         };
 
-        if self.vault_unlocked {
+        if get_vault_unlock_status() {
             let num_used_creds = Credential::get_num_used_credentials(&self.key).map_err(|e| format!("Unable to enumerate stored credentials. {}", e))?;
             info_msg.used_slots = num_used_creds;
             info_msg.free_slots = MAX_CREDENTIALS - num_used_creds;
@@ -347,6 +339,19 @@ pub fn send_response_message(uart: &mut uart::UartDriver, msg: &str, error: bool
     send_message(uart, &status_msg);
 }
 
+fn get_vault_unlock_status() -> bool {
+    critical_section::with(|cs| {
+        VAULT_STATUS_UNLOCKED.borrow(cs).get()
+    })
+}
+
+fn arm_auto_lock_timer(autolock_timer: &mut TimerDriver) -> () {
+    autolock_timer.set_alarm(autolock_timer.tick_hz() * 60).unwrap();
+    autolock_timer.set_counter(0).unwrap();
+    autolock_timer.enable_interrupt().unwrap();
+    autolock_timer.enable_alarm(true).unwrap();
+    autolock_timer.enable(true).unwrap();
+}
 fn main() {
     // It is necessary to call this function once, otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
@@ -371,9 +376,36 @@ fn main() {
         .baudrate(Hertz(115_200))
         .flow_control(uart::config::FlowControl::None);
 
+    // Setup status LED and lock button
     let mut unlocked_led = PinDriver::output(peripherals.pins.gpio10).unwrap();
     unlocked_led.set_low().unwrap();
-    let button = PinDriver::input(peripherals.pins.gpio9).unwrap();
+    let mut lock_button = PinDriver::input(peripherals.pins.gpio9).unwrap();
+    lock_button.set_pull(Pull::Up).unwrap(); // Pull "BOOT" button up
+    lock_button.set_interrupt_type(InterruptType::PosEdge).unwrap();
+
+    // Lock button handler
+    unsafe {
+        lock_button.subscribe(|| {
+            // Update the vault status inside a critical section (interrupts disabled) so nothing else can interrupt us
+            critical_section::with(|cs| {
+                let f = VAULT_STATUS_UNLOCKED.borrow(cs);
+                f.set(false);
+            });
+        }).unwrap();
+    }
+
+    lock_button.enable_interrupt().unwrap();
+
+    let timer_config = TimerConfig::new().divider(160).auto_reload(false); // Divider = 160 since ESP32-C3 runs @ 160MHz. Auto-reload = false for one-shot timer
+    let mut autolock_timer = TimerDriver::new(peripherals.timer00, &timer_config).unwrap();
+    unsafe {
+    autolock_timer.subscribe(|| {
+        critical_section::with(|cs| {
+            let f = VAULT_STATUS_UNLOCKED.borrow(cs);
+            f.set(false);
+            });
+        }).unwrap();
+    }
 
     if let Err(e) = System::first_boot_hook() {
         error!("Critical error on first boot! {e}");
@@ -393,6 +425,12 @@ fn main() {
     loop {
         std::thread::sleep(std::time::Duration::from_millis(100));
 
+        // Update vault locked LED
+        match get_vault_unlock_status() {
+            true => unlocked_led.set_high().unwrap(),
+            false => unlocked_led.set_low().unwrap(),
+        }
+
         let mut buf: [u8; 512] = [0; 512];
         if let Ok(num_bytes_read) = uart.read(&mut buf, 10) {
             if num_bytes_read > 0 {
@@ -410,7 +448,7 @@ fn main() {
 
                 match command {
                     CMD_SET_TIME => {
-                        if sys.vault_unlocked == false {
+                        if get_vault_unlock_status() == false {
                             send_response_message(&mut uart, "Vault Locked!", true)
                         } else {
                             match sys.set_time(&buf, num_bytes_read) {
@@ -420,7 +458,7 @@ fn main() {
                         }
                     },
                     CMD_CREATE => {
-                        if sys.vault_unlocked == false {
+                        if get_vault_unlock_status() == false  {
                             send_response_message(&mut uart, "Vault Locked!", true)
                         } else {
                             match sys.create_entry(&buf, num_bytes_read) {
@@ -430,7 +468,7 @@ fn main() {
                         }
                     }
                     CMD_LIST => {
-                        if sys.vault_unlocked == false {
+                        if get_vault_unlock_status() == false {
                             send_response_message(&mut uart, "Vault Locked!", true)
                         } else {
                             match Credential::list_credentials(&sys.key) {
@@ -445,7 +483,7 @@ fn main() {
                         }
                     }
                     CMD_DELETE => {
-                        if sys.vault_unlocked == false {
+                        if get_vault_unlock_status() == false  {
                             send_response_message(&mut uart, "Vault Locked!", true)
                         } else {
                             if let Ok(del_msg) = rmp_serde::from_slice::<DeleteEntryMsg>(&buf[1..]) {
@@ -463,7 +501,7 @@ fn main() {
                         }
                     }
                     CMD_DISPLAY_CODE => {
-                        if sys.vault_unlocked == false {
+                        if get_vault_unlock_status() == false  {
                             send_response_message(&mut uart, "Vault Locked!", true)
                         } else {
                             match sys.display_code(&buf) {
@@ -483,10 +521,17 @@ fn main() {
                     }
                     CMD_UNLOCK_VAULT => {
                         match sys.unlock_vault(&buf, num_bytes_read, &mut unlocked_led) {
-                            Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
+                            Ok(_) => {
+                                // Check if we have auto-lock enabled, if yes load and fire the lock timer
+                                if let Ok(auto_lock_setting) = nvs_read_setting(SETTING_AUTOLOCK) {
+                                    if auto_lock_setting == AUTOLOCK_ON {
+                                        arm_auto_lock_timer(&mut autolock_timer);
+                                    }
+                                }
+                                send_response_message(&mut uart, SUCCESS_MSG, false)
+                            },
                             Err(_) => send_response_message(&mut uart, "Incorrect Password", true),
                         };
-
                     }
                     CMD_INIT_VAULT => match sys.init_vault(&buf, num_bytes_read) {
                         Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
@@ -503,7 +548,7 @@ fn main() {
                         }
                     }
                     CMD_LOCK_VAULT => {
-                        sys.vault_unlocked = false;
+                        critical_section::with(|cs| VAULT_STATUS_UNLOCKED.borrow(cs).set(false));
                         sys.key.zeroize();
                         unlocked_led.set_low().unwrap();
                         send_response_message(&mut uart, SUCCESS_MSG, false);
@@ -513,7 +558,7 @@ fn main() {
                         send_message(&mut uart, &response_msg);
                     }
                     CMD_SET_SETTINGS => {
-                        if sys.vault_unlocked == false {
+                        if get_vault_unlock_status() == false {
                             send_response_message(&mut uart, "Vault Locked!", true);
                         } else {
                             match rmp_serde::from_slice::<SetSettingMsg>(&buf[1..]) {

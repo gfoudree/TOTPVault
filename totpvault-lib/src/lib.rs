@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use totp_rs;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -33,10 +34,11 @@ pub const MAX_SETTING_KEY_LEN: usize = 32;
 pub const NONCE_CHALLENGE_LEN: usize = 64;
 
 // Setting keys and values
-pub const SETTING_USER_PRESENCE_REQUIRED: &str = "pres_reqd";
-pub const DISPLAY_SETTING_USER_PRESENCE_REQUIRED: &str = "user_presence_required"; // User-friendly name
-pub const USER_PRESENCE_YES: &str = "yes";
-pub const USER_PRESENCE_NO: &str = "no";
+pub const ALL_SETTINGS: [&str; 1] = [SETTING_AUTOLOCK];
+pub const SETTING_AUTOLOCK: &str = "autolock";
+pub const DISPLAY_SETTING_AUTOLOCK: &str = "auto-lock"; // User-friendly name
+pub const AUTOLOCK_ON: &str = "on";
+pub const AUTOLOCK_OFF: &str = "off";
 
 pub const SUCCESS_MSG: &str = "Success!";
 
@@ -147,7 +149,7 @@ pub struct SetSettingMsg {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GetSettingsResponseMsg {
-    pub settings: Vec<Setting>,
+    pub settings: HashMap<String, String>,
 }
 
 impl Message for TOTPCodeMsg {
@@ -196,11 +198,11 @@ impl Message for SetSettingMsg {
         }
         // Validate known settings
         match self.key.as_str() {
-            SETTING_USER_PRESENCE_REQUIRED => {
-                if self.value.as_str() == USER_PRESENCE_YES || self.value.as_str() == USER_PRESENCE_NO {
+            SETTING_AUTOLOCK => {
+                if self.value.as_str() == AUTOLOCK_ON || self.value.as_str() == AUTOLOCK_OFF {
                     true
                 } else {
-                    print_debug_msg(format!("Invalid value for {}: {}", SETTING_USER_PRESENCE_REQUIRED, self.value));
+                    print_debug_msg(format!("Invalid value for {}: {}", SETTING_AUTOLOCK, self.value));
                     false
                 }
             },
@@ -218,10 +220,10 @@ impl Message for GetSettingsResponseMsg {
     fn message_type_byte(&self) -> u8 { MSG_GET_SETTINGS_RESPONSE }
 }
 
-/// Returns the user-friendly display name for a given internal setting key.
+// Returns the user-friendly display name for a given internal setting key since the NVS name has to be short due to max len of NVS keys
 pub fn get_setting_display_name(key: &str) -> &str {
     match key {
-        SETTING_USER_PRESENCE_REQUIRED => DISPLAY_SETTING_USER_PRESENCE_REQUIRED,
+        SETTING_AUTOLOCK => DISPLAY_SETTING_AUTOLOCK,
         _ => key, // Return the key itself if no specific display name is found
     }
 }

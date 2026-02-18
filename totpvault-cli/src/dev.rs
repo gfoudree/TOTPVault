@@ -3,6 +3,7 @@ const PID: u16 = 0x55d3;
 const ALLOWED_TIMESYNC_DELTA: i64 = 3;
 const DEFAULT_UART_DELAY: u64 = 1500;
 use std::{env};
+use std::collections::HashMap;
 use rmp_serde::{Deserializer};
 use serialport;
 use serde::{Deserialize};
@@ -118,7 +119,7 @@ impl TotpvaultDev {
         Ok(msg)
     }
 
-    pub fn get_all_settings(dev_path: &str, timeout: Option<u64>) -> Result<Vec<Setting>, String> {
+    pub fn get_all_settings(dev_path: &str, timeout: Option<u64>) -> Result<HashMap<String, String>, String> {
         let resp = send_command(dev_path, CMD_GET_SETTINGS, timeout.unwrap_or(2000))?;
         if resp[0] == MSG_GET_SETTINGS_RESPONSE {
             let settings_list_msg: GetSettingsResponseMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| format!("Failed to deserialize GetSettingsResponseMsg: {}", e))?;
