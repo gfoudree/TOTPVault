@@ -22,7 +22,6 @@ use zeroize::Zeroize;
 use totpvault_lib;
 use critical_section::Mutex;
 use esp_idf_svc::hal::timer::{TimerConfig, TimerDriver};
-use storage::*;
 use totpvault_lib::*;
 
 mod credential;
@@ -43,6 +42,7 @@ struct System {
     time_set: bool,
     key: [u8; 32],
     settings: HashMap<String, String>,
+    nvs_storage: storage::Storage
 }
 
 impl System {
@@ -51,13 +51,14 @@ impl System {
             time_set: false,
             key: [0; 32],
             settings: HashMap::new(),
+            nvs_storage: storage::Storage::new().unwrap()
         }
     }
 
     fn load_settings(&mut self) {
         // Iterate through all of the known settings by their NVS keys
         for key in ALL_SETTINGS {
-            match nvs_read_setting(key) {
+            match self.nvs_storage.nvs_read_setting(key) {
                 Ok(value) => {
                     self.settings.insert(key.to_string(), value);
                 },
@@ -70,7 +71,7 @@ impl System {
                             continue; // Skip unknown settings
                         }
                     };
-                    if let Err(write_err) = nvs_write_setting(key, default_value) {
+                    if let Err(write_err) = self.nvs_storage.nvs_write_setting(key, default_value) {
                         error!("Failed to write default setting {} = {}: {}", key, default_value, write_err);
                     } else {
                         self.settings.insert(key.to_string(), default_value.to_string());
@@ -86,7 +87,7 @@ impl System {
         }
 
         // Update in NVS
-        nvs_write_setting(&set_msg.key, &set_msg.value)?;
+        self.nvs_storage.nvs_write_setting(&set_msg.key, &set_msg.value)?;
 
         // Update in current system state
         self.settings.insert(set_msg.key.to_string(), set_msg.value.to_string());
@@ -100,9 +101,9 @@ impl System {
         }
     }
 
-    fn setup_ed25519() -> Result<(), String> {
+    fn setup_ed25519(&mut self) -> Result<(), String> {
         let mut secret_bytes: [u8; SECRET_KEY_LENGTH] = gen_ed25519_keypair().to_bytes();
-        nvs_write_blob(NVS_KEY_ED25519, &secret_bytes)?;
+        self.nvs_storage.nvs_write_blob(NVS_KEY_ED25519, &secret_bytes)?;
         secret_bytes.zeroize();
         Ok(())
     }
@@ -117,23 +118,23 @@ impl System {
         critical_section::with(|cs| VAULT_STATUS_UNLOCKED.borrow(cs).set(false));
 
         // Erase NVS partition
-        format_nvs_partition()?;
-        Self::setup_ed25519()?;
+        self.nvs_storage.format_nvs_partition()?;
+        self.setup_ed25519()?;
 
         // Generate encryption salt and store it in the database
         let salt = gen_salt();
-        nvs_write_blob("salt", &salt)?;
+        self.nvs_storage.nvs_write_blob("salt", &salt)?;
 
         // Derive the encryption key
         let enc_key = Self::derive_encryption_key(init_msg.password.as_str(), &salt);
 
         // Wipe all entries
         for i in 0..MAX_CREDENTIALS {
-            Credential::init_credential(i)?;
+            Credential::init_credential(i, &mut self.nvs_storage)?;
         }
 
         // Init metadata
-        nvs_write_blob_encrypted("magic", &ENCRYPTION_MAGIC, &enc_key)?;
+        self.nvs_storage.nvs_write_blob_encrypted("magic", &ENCRYPTION_MAGIC, &enc_key)?;
 
         Ok(())
     }
@@ -151,7 +152,7 @@ impl System {
         let challenge_bytes: [u8; NONCE_CHALLENGE_LEN] = challenge_bytes_vec.try_into().
             map_err(|_| "Invalid AuthenticateChallenge message")?;
 
-        match sign_challenge(&challenge_bytes) {
+        match sign_challenge(&challenge_bytes, &mut self.nvs_storage) {
             Ok(sig) => {
                 let signature_encoded = BASE64_STANDARD.encode(sig.to_vec());
                 Ok(AttestationResponseMsg{ message: signature_encoded })
@@ -170,15 +171,15 @@ impl System {
         key
     }
 
-    fn display_code(&self, cmd_buf: &[u8; 512]) -> Result<String, String> {
+    fn display_code(&mut self, cmd_buf: &[u8; 512]) -> Result<String, String> {
         if self.time_set == false {
             return Err("System time has not been set!".to_string());
         }
 
         match rmp_serde::from_slice::<DisplayCodeMsg>(&cmd_buf[1..]) {
             Ok(display_code_msg) => {
-                let index = Credential::credential_name_to_index(display_code_msg.domain_name, &self.key)?;
-                let mut cred = Credential::get_credential(index, &self.key)?;
+                let index = Credential::credential_name_to_index(display_code_msg.domain_name, &self.key, &mut self.nvs_storage)?;
+                let mut cred = Credential::get_credential(index, &self.key, &mut self.nvs_storage)?;
 
                 let totp_code = Credential::gen_totp(&cred)?;
                 cred.totp_secret_decrypted.zeroize();
@@ -198,7 +199,7 @@ impl System {
         }
 
         // Read the salt, toss error if it fails ("?"), then try and convert into slice with SALT_LEN and handle error if it fails
-        let salt: [u8; SALT_LEN] = match nvs_read_blob("salt")?.try_into() {
+        let salt: [u8; SALT_LEN] = match self.nvs_storage.nvs_read_blob("salt")?.try_into() {
             Ok(v) => v,
             Err(_) => {
                 return Err("Database is corrupted, salt is not a valid length. Please reset the database!".to_string());
@@ -208,7 +209,7 @@ impl System {
         let key = Self::derive_encryption_key(unlock_msg.password.as_str(), &salt);
 
         // Test if the vault is unlocked
-        let decrypted_magic = nvs_read_blob_encrypted("magic", &key).map_err(|_| "Unable to decrypt value. Corrupted data or wrong password!".to_string())?;
+        let decrypted_magic = self.nvs_storage.nvs_read_blob_encrypted("magic", &key).map_err(|_| "Unable to decrypt value. Corrupted data or wrong password!".to_string())?;
 
         // Use constant time compare for security, although it's not necessary maybe
         if decrypted_magic.ct_ne(&ENCRYPTION_MAGIC).unwrap_u8() == 1 {
@@ -278,29 +279,29 @@ impl System {
             cred.totp_secret_decrypted = Some(create_msg.totp_secret.clone());
 
             // Save the credential
-            Credential::save_credential(&mut cred, &self.key)?;
+            Credential::save_credential(&mut cred, &self.key, &mut self.nvs_storage)?;
             cred.totp_secret_decrypted.zeroize();
         } else {
             return Err("Invalid CreateEntryMsg message".to_string());
         }
         Ok(())
     }
-    fn first_boot_hook() -> Result<(), String> {
+    fn first_boot_hook(&mut self) -> Result<(), String> {
         // If we don't have a ED25519 private key setup, then this is the first boot
-        match nvs_read_blob(NVS_KEY_ED25519) {
+        match self.nvs_storage.nvs_read_blob(NVS_KEY_ED25519) {
             Ok(_) => {}
             Err(_) => {
                 // Erase NVS partition
-                format_nvs_partition()?;
+                self.nvs_storage.format_nvs_partition()?;
                 // Setup ED25519 Key
-                Self::setup_ed25519()?;
+                self.setup_ed25519()?;
             }
         }
         Ok(())
     }
 
-    fn get_system_info(&self) -> Result<SystemInfoMsg, String> {
-        let pubkey = get_ed25519_public_key_nvs().map_err(|e| format!("Unable to get device public key. {}", e))?;
+    fn get_system_info(&mut self) -> Result<SystemInfoMsg, String> {
+        let pubkey = get_ed25519_public_key_nvs(&mut self.nvs_storage).map_err(|e| format!("Unable to get device public key. {}", e))?;
 
         let mut info_msg = SystemInfoMsg {
             total_slots: MAX_CREDENTIALS,
@@ -313,7 +314,7 @@ impl System {
         };
 
         if get_vault_unlock_status() {
-            let num_used_creds = Credential::get_num_used_credentials(&self.key).map_err(|e| format!("Unable to enumerate stored credentials. {}", e))?;
+            let num_used_creds = Credential::get_num_used_credentials(&self.key, &mut self.nvs_storage).map_err(|e| format!("Unable to enumerate stored credentials. {}", e))?;
             info_msg.used_slots = num_used_creds;
             info_msg.free_slots = MAX_CREDENTIALS - num_used_creds;
         }
@@ -352,6 +353,13 @@ fn arm_auto_lock_timer(autolock_timer: &mut TimerDriver) -> () {
     autolock_timer.enable_alarm(true).unwrap();
     autolock_timer.enable(true).unwrap();
 }
+
+fn timer_callback_lock_vault() {
+    critical_section::with(|cs| {
+        let f = VAULT_STATUS_UNLOCKED.borrow(cs);
+        f.set(false);
+    });
+}
 fn main() {
     // It is necessary to call this function once, otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
@@ -385,29 +393,18 @@ fn main() {
 
     // Lock button handler
     unsafe {
-        lock_button.subscribe(|| {
-            // Update the vault status inside a critical section (interrupts disabled) so nothing else can interrupt us
-            critical_section::with(|cs| {
-                let f = VAULT_STATUS_UNLOCKED.borrow(cs);
-                f.set(false);
-            });
-        }).unwrap();
+        lock_button.subscribe(timer_callback_lock_vault).unwrap();
     }
 
     lock_button.enable_interrupt().unwrap();
 
-    let timer_config = TimerConfig::new().divider(160).auto_reload(false); // Divider = 160 since ESP32-C3 runs @ 160MHz. Auto-reload = false for one-shot timer
+    let timer_config = TimerConfig::new().auto_reload(false); // Auto-reload = false for one-shot timer
     let mut autolock_timer = TimerDriver::new(peripherals.timer00, &timer_config).unwrap();
     unsafe {
-    autolock_timer.subscribe(|| {
-        critical_section::with(|cs| {
-            let f = VAULT_STATUS_UNLOCKED.borrow(cs);
-            f.set(false);
-            });
-        }).unwrap();
+        lock_button.subscribe(timer_callback_lock_vault).unwrap();
     }
 
-    if let Err(e) = System::first_boot_hook() {
+    if let Err(e) = sys.first_boot_hook() {
         error!("Critical error on first boot! {e}");
         restart();
     }
@@ -471,7 +468,7 @@ fn main() {
                         if get_vault_unlock_status() == false {
                             send_response_message(&mut uart, "Vault Locked!", true)
                         } else {
-                            match Credential::list_credentials(&sys.key) {
+                            match Credential::list_credentials(&sys.key, &mut sys.nvs_storage) {
                                 Ok(creds) => {
                                     // Transform them into CredentialListMsg
                                     let creds_vec = creds.iter().map(|cred| CredentialInfo { domain_name: cred.domain_name.clone(), slot_id: cred.slot_id }).collect();
@@ -488,7 +485,7 @@ fn main() {
                         } else {
                             if let Ok(del_msg) = rmp_serde::from_slice::<DeleteEntryMsg>(&buf[1..]) {
                                 if del_msg.validate() {
-                                    match Credential::delete_credential_by_name(del_msg.domain_name, &sys.key) {
+                                    match Credential::delete_credential_by_name(del_msg.domain_name, &sys.key, &mut sys.nvs_storage) {
                                         Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
                                         Err(e) => send_response_message(&mut uart, format!("Error deleting credential: {}", e).as_str(), true),
                                     }
@@ -523,7 +520,7 @@ fn main() {
                         match sys.unlock_vault(&buf, num_bytes_read, &mut unlocked_led) {
                             Ok(_) => {
                                 // Check if we have auto-lock enabled, if yes load and fire the lock timer
-                                if let Ok(auto_lock_setting) = nvs_read_setting(SETTING_AUTOLOCK) {
+                                if let Ok(auto_lock_setting) = sys.nvs_storage.nvs_read_setting(SETTING_AUTOLOCK) {
                                     if auto_lock_setting == AUTOLOCK_ON {
                                         arm_auto_lock_timer(&mut autolock_timer);
                                     }

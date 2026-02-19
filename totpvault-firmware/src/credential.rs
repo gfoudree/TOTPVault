@@ -1,4 +1,4 @@
-use crate::{ crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN}, nvs_read_blob, nvs_write_blob};
+use crate::{crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN}, storage};
 
 use serde::{Deserialize, Serialize};
 use totp_rs;
@@ -51,10 +51,10 @@ impl Credential {
         Ok(token)
     }
 
-    pub fn list_credentials(encryption_key: &[u8; AES_KEY_LEN]) -> Result<Vec<Credential>, String> {
+    pub fn list_credentials(encryption_key: &[u8; AES_KEY_LEN], nvs_storage: &mut storage::Storage) -> Result<Vec<Credential>, String> {
         let mut creds: Vec<Credential> = Vec::new();
         for i in 0..MAX_CREDENTIALS {
-            let cred = Self::get_credential(i, encryption_key)
+            let cred = Self::get_credential(i, encryption_key, nvs_storage)
                 .map_err(|e| format!("Error listing credentials: {}", e))?;
             if cred.in_use {
                 creds.push(cred);
@@ -63,10 +63,10 @@ impl Credential {
         Ok(creds)
     }
 
-    pub fn get_num_used_credentials(encryption_key: &[u8; AES_KEY_LEN]) -> Result<u8, String> {
+    pub fn get_num_used_credentials(encryption_key: &[u8; AES_KEY_LEN], nvs_storage: &mut storage::Storage) -> Result<u8, String> {
         let mut used = 0;
         for i in 0..MAX_CREDENTIALS {
-            let cred = Self::get_credential(i, encryption_key)
+            let cred = Self::get_credential(i, encryption_key, nvs_storage)
                 .map_err(|e| format!("Error listing credentials: {}", e))?;
             if cred.in_use {
                 used += 1;
@@ -79,8 +79,9 @@ impl Credential {
     pub fn get_credential(
         index: u8,
         encryption_key: &[u8; AES_KEY_LEN],
+        nvs_storage: &mut storage::Storage
     ) -> Result<Credential, String> {
-        let cred_serialized = nvs_read_blob(format!("slot{}", index).as_str())?;
+        let cred_serialized = nvs_storage.nvs_read_blob(format!("slot{}", index).as_str())?;
 
         let mut cred: Credential = bincode::deserialize(&cred_serialized)
             .map_err(|e| format!("Error deserializing credential in slot {}. {}", index, e))?;
@@ -104,7 +105,7 @@ impl Credential {
         Ok(cred)
     }
 
-    pub fn init_credential(index: u8) -> Result<(), String> {
+    pub fn init_credential(index: u8, nvs_storage: &mut storage::Storage) -> Result<(), String> {
         let mut cred = Credential::default();
         cred.slot_id = index;
         cred.in_use = false;
@@ -113,14 +114,14 @@ impl Credential {
         let binary_data = bincode::serialize(&cred)
             .map_err(|e| format!("Error serializing credential struct to binary! {}", e))?;
 
-        nvs_write_blob(format!("slot{}", cred.slot_id).as_str(), &binary_data)?;
+        nvs_storage.nvs_write_blob(format!("slot{}", cred.slot_id).as_str(), &binary_data)?;
 
         Ok(())
     }
 
-    fn find_open_slot(encryption_key: &[u8; AES_KEY_LEN]) -> Result<u8, String> {
+    fn find_open_slot(encryption_key: &[u8; AES_KEY_LEN], nvs_storage: &mut storage::Storage) -> Result<u8, String> {
         for i in 0..MAX_CREDENTIALS {
-            if let Ok(cred) = Self::get_credential(i, encryption_key) {
+            if let Ok(cred) = Self::get_credential(i, encryption_key, nvs_storage) {
                 if cred.in_use == false {
                     return Ok(i);
                 }
@@ -132,9 +133,10 @@ impl Credential {
     pub fn save_credential(
         cred: &mut Credential,
         encryption_key: &[u8; AES_KEY_LEN],
+        nvs_storage: &mut storage::Storage
     ) -> Result<(), String> {
         // Names should be unique, check that none other exists
-        if Self::credential_name_to_index(cred.domain_name.clone(), encryption_key).is_ok() {
+        if Self::credential_name_to_index(cred.domain_name.clone(), encryption_key, nvs_storage).is_ok() {
             return Err("Credential name already in use!".to_string());
         }
 
@@ -144,7 +146,7 @@ impl Credential {
         }
 
         // Find an open slot for the credential
-        cred.slot_id = Self::find_open_slot(encryption_key)?;
+        cred.slot_id = Self::find_open_slot(encryption_key, nvs_storage)?;
 
         // Encrypt TOTP secret
         let mut totp_secret = cred.totp_secret_decrypted.clone().unwrap();
@@ -160,20 +162,20 @@ impl Credential {
             .map_err(|e| format!("Error serializing credential struct to binary! {}", e))?;
 
         // Save it to NVS
-        nvs_write_blob(format!("slot{}", cred.slot_id).as_str(), &binary_data)?;
+        nvs_storage.nvs_write_blob(format!("slot{}", cred.slot_id).as_str(), &binary_data)?;
 
         Ok(())
     }
 
-    pub fn delete_credential(index: u8) -> Result<(), String> {
+    pub fn delete_credential(index: u8, nvs_storage: &mut storage::Storage) -> Result<(), String> {
         // Doesn't matter if it's in use, just initialize it as a default
-        Self::init_credential(index)?;
+        Self::init_credential(index, nvs_storage)?;
         Ok(())
     }
 
-    pub fn credential_name_to_index(name: String, encryption_key: &[u8; AES_KEY_LEN]) -> Result<u8, String> {
+    pub fn credential_name_to_index(name: String, encryption_key: &[u8; AES_KEY_LEN], nvs_storage: &mut storage::Storage) -> Result<u8, String> {
         for i in 0..MAX_CREDENTIALS {
-            if let Ok(cred) = Self::get_credential(i, encryption_key) {
+            if let Ok(cred) = Self::get_credential(i, encryption_key, nvs_storage) {
                 if cred.domain_name == name {
                     return Ok(i);
                 }
@@ -185,10 +187,11 @@ impl Credential {
     pub fn delete_credential_by_name(
         name: String,
         encryption_key: &[u8; AES_KEY_LEN],
+        nvs_storage: &mut storage::Storage
     ) -> Result<(), String> {
-        match Self::credential_name_to_index(name, encryption_key) {
+        match Self::credential_name_to_index(name, encryption_key, nvs_storage) {
             Ok(index) => {
-                Credential::delete_credential(index)?;
+                Credential::delete_credential(index, nvs_storage)?;
                 Ok(())
             },
             Err(e) => Err(e)
