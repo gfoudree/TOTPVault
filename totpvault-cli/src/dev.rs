@@ -1,7 +1,7 @@
 const VID: u16 = 0x1a86;
 const PID: u16 = 0x55d3;
 const ALLOWED_TIMESYNC_DELTA: i64 = 3;
-const DEFAULT_UART_DELAY: u64 = 1500;
+const DEFAULT_UART_DELAY: u64 = 1000;
 use std::{env};
 use std::collections::HashMap;
 use rmp_serde::{Deserializer};

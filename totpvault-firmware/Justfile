@@ -20,7 +20,7 @@ FLASH_ENCRYPTION_AES_KEYFILE  := "flash_encryption_key.bin"
 FLASH_IMAGE                   := "flash.bin"
 EFUSE_FILE                    := "qemu_efuse.bin"
 
-DETECTED_PORT                 := `espflash board-info 2>&1 | grep "Serial port:" | sed "s/.*'\(.*\)'.*/\1/"`
+DETECTED_PORT                 := `espflash board-info -c esp32c3 --no-stub 2>&1 | grep "Serial port:" | sed "s/.*'\(.*\)'.*/\1/"`
 export ESPPORT                := env_var_or_default("ESPPORT", DETECTED_PORT)
 
 # --- Recipes ---
@@ -112,7 +112,7 @@ flash: check-env
     rm -f {{ELF_FIRMWARE}}
 
 dev-info:
-    espflash board-info
+    espflash board-info -c esp32c3 --no-stub
 
 # Clean artifacts
 clean:

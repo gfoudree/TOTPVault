@@ -1,5 +1,5 @@
 use core::cell::Cell;
-use std::collections::HashMap;
+use std::{collections::HashMap};
 use std::fmt::Debug;
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
@@ -22,6 +22,7 @@ use zeroize::Zeroize;
 use totpvault_lib;
 use critical_section::Mutex;
 use esp_idf_svc::hal::timer::{TimerConfig, TimerDriver};
+use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvsPartition, NvsDefault};
 use totpvault_lib::*;
 
 mod credential;
@@ -42,16 +43,18 @@ struct System {
     time_set: bool,
     key: [u8; 32],
     settings: HashMap<String, String>,
-    nvs_storage: storage::Storage
+    nvs_storage: storage::Storage,
+    nvs_partition_handle: EspNvsPartition<NvsDefault>
 }
 
 impl System {
-    fn new() -> System {
+    fn new(nvs_partition: EspNvsPartition<NvsDefault>) -> System {
         System {
             time_set: false,
             key: [0; 32],
             settings: HashMap::new(),
-            nvs_storage: storage::Storage::new().unwrap()
+            nvs_storage: storage::Storage::new(nvs_partition.clone()).unwrap(),
+            nvs_partition_handle: nvs_partition
         }
     }
 
@@ -118,7 +121,7 @@ impl System {
         critical_section::with(|cs| VAULT_STATUS_UNLOCKED.borrow(cs).set(false));
 
         // Erase NVS partition
-        self.nvs_storage.format_nvs_partition()?;
+        self.nvs_storage.format_nvs_partition(self.nvs_partition_handle.clone())?;
         self.setup_ed25519()?;
 
         // Generate encryption salt and store it in the database
@@ -292,7 +295,7 @@ impl System {
             Ok(_) => {}
             Err(_) => {
                 // Erase NVS partition
-                self.nvs_storage.format_nvs_partition()?;
+                self.nvs_storage.format_nvs_partition(self.nvs_partition_handle.clone())?;
                 // Setup ED25519 Key
                 self.setup_ed25519()?;
             }
@@ -375,7 +378,8 @@ fn main() {
     }
     info!("Hardware RNG enabled");
 
-    let mut sys = System::new();
+    let nvs_partition: EspNvsPartition<NvsDefault> = EspDefaultNvsPartition::take().unwrap();
+    let mut sys = System::new(nvs_partition.clone());
     sys.load_settings(); // Load settings on system initialization
 
     let peripherals = Peripherals::take().unwrap();

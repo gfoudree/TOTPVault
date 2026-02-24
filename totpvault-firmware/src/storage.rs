@@ -1,5 +1,5 @@
 use esp_idf_svc::nvs::*;
-use esp_idf_sys::{nvs_flash_erase, ESP_OK};
+use esp_idf_sys::{ESP_OK, nvs_flash_erase, nvs_flash_init};
 
 use crate::crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN};
 use log::debug;
@@ -14,23 +14,27 @@ pub struct Storage {
 }
 
 impl Storage {
-    pub fn new() -> Result<Self, String> {
-
-        let nvs_partition: EspNvsPartition<NvsDefault> = match EspDefaultNvsPartition::take() {
-            Ok(v) => v,
-            Err(_) => return Err("Unable to open default NVS partition".to_string()),
-        };
+    pub fn new(nvs_partition: EspNvsPartition<NvsDefault>) -> Result<Self, String> {
         let vault = EspNvs::new(nvs_partition.clone(), NVS_VAULT_NAMESPACE, true).map_err(|e| e.to_string())?;
-        let settings = EspNvs::new(nvs_partition, NVS_SETTINGS_NAMESPACE, true).map_err(|e| e.to_string())?;
+        let settings = EspNvs::new(nvs_partition.clone(), NVS_SETTINGS_NAMESPACE, true).map_err(|e| e.to_string())?;
         Ok(Self{settings_nvs_h: settings, vault_nvs_h: vault})
     }
-    pub fn format_nvs_partition(&self) -> Result<(), String> {
+    pub fn format_nvs_partition(&mut self, nvs_partition: EspNvsPartition<NvsDefault>) -> Result<(), String> {
         unsafe {
-            let e = nvs_flash_erase();
+            let mut e = nvs_flash_erase();
             if e != ESP_OK {
-                return Err("Unable to format default NVS partition!".to_string());
+                return Err(format!("Unable to format default NVS partition! Error = {}", e));
+            }
+            e = nvs_flash_init();
+            if e != ESP_OK {
+                return Err(format!("Unable to initialize default NVS partition! Error = {}", e));
             }
         }
+
+        // Refresh NVS handles since they're invalid after wiping the NVS
+        self.vault_nvs_h = EspNvs::new(nvs_partition.clone(), NVS_VAULT_NAMESPACE, true).map_err(|e| e.to_string())?;
+        self.settings_nvs_h = EspNvs::new(nvs_partition, NVS_SETTINGS_NAMESPACE, true).map_err(|e| e.to_string())?;
+
         Ok(())
     }
 
