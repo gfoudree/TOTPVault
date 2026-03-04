@@ -25,6 +25,10 @@ pub struct TotpvaultDev {}
 impl TotpvaultDev {
     pub fn timesync_check(device_timestamp: u64) -> bool {
         let current_time = Utc::now().timestamp() as u64;
+        if device_timestamp > current_time {
+            warn!("Device timestamp is greater than current time!");
+            return false;
+        }
         let time_delta = ((current_time - device_timestamp) as i64).abs();
 
         info!("System time (UTC): {}     Device time (UTC): {}     Delta: {}", current_time, device_timestamp, time_delta);
@@ -70,7 +74,8 @@ impl TotpvaultDev {
                                 // Handle OS-specific details
                                 match env::consts::OS {
                                     "windows" => {
-                                        // TODO
+                                        debug!("Using USB device {:02x}:{:02x} @ {}", info.vid, info.pid, port.port_name);
+                                        return Ok(port.port_name);
                                     }
                                     "linux" => {
                                         debug!("Using USB device {:02x}:{:02x} @ {}", info.vid, info.pid, port.port_name);
