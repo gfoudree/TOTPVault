@@ -41,6 +41,10 @@ const MAX_TIMESTAMP_SET_DELTA: u64 = 1024;
 const AUTO_VAULT_LOCK_SECONDS: u64 = 600;
 const NVS_KEY_ED25519: &str = "ED25519_KEY";
 
+const MAX_FAILED_AUTH_ATTEMPTS: u32 = 5;
+const LOGIN_COOLDOWN_SECS: u32 = 60;
+const LOGIN_COOLDOWN_WINDOW_SECS: u32 = 60;
+
 // Static (global) variable for 'static lifetime. Mutex for safety, Cell<bool> allows multiple mutable references by only allowing 'interior mutability'
 static VAULT_STATUS_UNLOCKED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
@@ -48,6 +52,11 @@ static VAULT_STATUS_UNLOCKED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 struct System {
     time_set: bool,
     key: [u8; 32],
+
+    // Authentication rate limiters
+    auth_window_ts: i64,
+    auth_counter: u32,
+    auth_block_until: i64,
 
     #[zeroize(skip)]
     settings: HashMap<String, String>,
@@ -62,6 +71,9 @@ impl System {
         System {
             time_set: false,
             key: [0; 32],
+            auth_window_ts: 0,
+            auth_counter: 0,
+            auth_block_until: 0,
             settings: HashMap::new(),
             nvs_storage: storage::Storage::new(nvs_partition.clone()).unwrap(),
             nvs_partition_handle: nvs_partition,
@@ -239,6 +251,34 @@ impl System {
             return Err("Invalid Unlock message".to_string());
         }
 
+        // System time can only go forward within a defined delta when vault is unlocked
+        let cur_ts = Utc::now().timestamp();
+
+        // Check cooldown timer
+        if cur_ts < self.auth_block_until {
+            return Err(format!(
+                "Too many login attempts, please wait {} seconds",
+                LOGIN_COOLDOWN_SECS
+            ));
+        }
+
+        // Reset rolling authentication window
+        if cur_ts - self.auth_window_ts > LOGIN_COOLDOWN_WINDOW_SECS as i64 {
+            self.auth_window_ts = cur_ts;
+            self.auth_counter = 0;
+        }
+
+        // Check the rate limit
+        self.auth_counter = self.auth_counter.saturating_add(1);
+        if self.auth_counter > MAX_FAILED_AUTH_ATTEMPTS {
+            self.auth_block_until = cur_ts + LOGIN_COOLDOWN_SECS as i64;
+
+            return Err(format!(
+                "Too many login attempts, please wait {} seconds",
+                LOGIN_COOLDOWN_SECS
+            ));
+        }
+
         // Read the salt, toss error if it fails ("?"), then try and convert into slice with SALT_LEN and handle error if it fails
         let salt: [u8; SALT_LEN] = match self.nvs_storage.nvs_read_blob("salt")?.try_into() {
             Ok(v) => v,
@@ -270,9 +310,22 @@ impl System {
 
         // Set board LED GPIO10 to on for unlocked
         unlocked_led.set_high().unwrap();
+
+        // Reset auth counter
+        self.auth_window_ts = 0;
+        self.auth_counter = 0;
+        self.auth_block_until = 0;
+
         Ok(())
     }
 
+    /// Sets the system time counter
+    ///
+    /// # Overview
+    ///
+    /// Parses an incoming set time message with a timestamp. Sets system time ONLY if it is greater than the current time AND it's
+    /// within an allowed delta `MAX_TIMESTAMP_SET_DELTA` of the current timestamp
+    ///
     fn set_time(&mut self, cmd_buf: &[u8; 512], read_bytes: usize) -> Result<(), String> {
         let time_msg = rmp_serde::from_slice::<SetTimeMsg>(&cmd_buf[1..read_bytes])
             .map_err(|_| "Invalid SetTime message".to_string())?;
