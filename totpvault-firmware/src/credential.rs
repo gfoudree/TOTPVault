@@ -1,20 +1,24 @@
-use crate::{crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN}, storage};
+use crate::{
+    crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN},
+    storage,
+};
 
 use serde::{Deserialize, Serialize};
 use totp_rs;
-use zeroize::Zeroize;
 use totpvault_lib;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const MAX_CREDENTIALS: u8 = 64;
 
-#[derive(Serialize, Deserialize, Debug)]
-
+#[derive(Serialize, Deserialize, Debug, Zeroize, ZeroizeOnDrop)]
 pub struct Credential {
     pub domain_name: String,
     pub in_use: bool,
     pub slot_id: u8,
     #[serde(skip)]
     pub totp_secret_decrypted: Option<String>,
+
+    #[zeroize(skip)]
     pub totp_secret_encrypted: Vec<u8>,
     pub decryption_iv: [u8; AES_IV_LEN],
 }
@@ -40,18 +44,33 @@ impl Credential {
         }
 
         let totp_encoded_secret = cred.totp_secret_decrypted.clone().unwrap();
-        if totp_encoded_secret.len() < totpvault_lib::MIN_TOTP_SECRET_LEN || totp_encoded_secret.len() > totpvault_lib::MAX_TOTP_SECRET_LEN {
+        if totp_encoded_secret.len() < totpvault_lib::MIN_TOTP_SECRET_LEN
+            || totp_encoded_secret.len() > totpvault_lib::MAX_TOTP_SECRET_LEN
+        {
             return Err("Invalid credential!".to_string());
         }
 
-        let totp = totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30,
-                                      totp_rs::Secret::Encoded(totp_encoded_secret).to_bytes().unwrap()).map_err(|e| format!("Error initializing TOTP: {}", e))?;
+        let totp = totp_rs::TOTP::new(
+            totp_rs::Algorithm::SHA1,
+            6,
+            1,
+            30,
+            totp_rs::Secret::Encoded(totp_encoded_secret)
+                .to_bytes()
+                .unwrap(),
+        )
+        .map_err(|e| format!("Error initializing TOTP: {}", e))?;
 
-        let token = totp.generate_current().map_err(|e| format!("Error generating TOTP code: {}", e))?;
+        let token = totp
+            .generate_current()
+            .map_err(|e| format!("Error generating TOTP code: {}", e))?;
         Ok(token)
     }
 
-    pub fn list_credentials(encryption_key: &[u8; AES_KEY_LEN], nvs_storage: &mut storage::Storage) -> Result<Vec<Credential>, String> {
+    pub fn list_credentials(
+        encryption_key: &[u8; AES_KEY_LEN],
+        nvs_storage: &mut storage::Storage,
+    ) -> Result<Vec<Credential>, String> {
         let mut creds: Vec<Credential> = Vec::new();
         for i in 0..MAX_CREDENTIALS {
             let cred = Self::get_credential(i, encryption_key, nvs_storage)
@@ -63,7 +82,10 @@ impl Credential {
         Ok(creds)
     }
 
-    pub fn get_num_used_credentials(encryption_key: &[u8; AES_KEY_LEN], nvs_storage: &mut storage::Storage) -> Result<u8, String> {
+    pub fn get_num_used_credentials(
+        encryption_key: &[u8; AES_KEY_LEN],
+        nvs_storage: &mut storage::Storage,
+    ) -> Result<u8, String> {
         let mut used = 0;
         for i in 0..MAX_CREDENTIALS {
             let cred = Self::get_credential(i, encryption_key, nvs_storage)
@@ -75,11 +97,11 @@ impl Credential {
 
         Ok(used)
     }
-    
+
     pub fn get_credential(
         index: u8,
         encryption_key: &[u8; AES_KEY_LEN],
-        nvs_storage: &mut storage::Storage
+        nvs_storage: &mut storage::Storage,
     ) -> Result<Credential, String> {
         let cred_serialized = nvs_storage.nvs_read_blob(format!("slot{}", index).as_str())?;
 
@@ -99,8 +121,10 @@ impl Credential {
         )
         .map_err(|e| format!("Error decrypting credential in slot {}. {}", index, e))?;
 
-        // TODO: check that this is valid
-        cred.totp_secret_decrypted = Some(String::from_utf8(plaintext).map_err(|e| format!("Error with decrypted TOTP secret: {}", e))?);
+        cred.totp_secret_decrypted = Some(
+            String::from_utf8(plaintext)
+                .map_err(|e| format!("Error with decrypted TOTP secret: {}", e))?,
+        );
 
         Ok(cred)
     }
@@ -119,7 +143,10 @@ impl Credential {
         Ok(())
     }
 
-    fn find_open_slot(encryption_key: &[u8; AES_KEY_LEN], nvs_storage: &mut storage::Storage) -> Result<u8, String> {
+    fn find_open_slot(
+        encryption_key: &[u8; AES_KEY_LEN],
+        nvs_storage: &mut storage::Storage,
+    ) -> Result<u8, String> {
         for i in 0..MAX_CREDENTIALS {
             if let Ok(cred) = Self::get_credential(i, encryption_key, nvs_storage) {
                 if cred.in_use == false {
@@ -133,10 +160,12 @@ impl Credential {
     pub fn save_credential(
         cred: &mut Credential,
         encryption_key: &[u8; AES_KEY_LEN],
-        nvs_storage: &mut storage::Storage
+        nvs_storage: &mut storage::Storage,
     ) -> Result<(), String> {
         // Names should be unique, check that none other exists
-        if Self::credential_name_to_index(cred.domain_name.clone(), encryption_key, nvs_storage).is_ok() {
+        if Self::credential_name_to_index(cred.domain_name.clone(), encryption_key, nvs_storage)
+            .is_ok()
+        {
             return Err("Credential name already in use!".to_string());
         }
 
@@ -173,7 +202,11 @@ impl Credential {
         Ok(())
     }
 
-    pub fn credential_name_to_index(name: String, encryption_key: &[u8; AES_KEY_LEN], nvs_storage: &mut storage::Storage) -> Result<u8, String> {
+    pub fn credential_name_to_index(
+        name: String,
+        encryption_key: &[u8; AES_KEY_LEN],
+        nvs_storage: &mut storage::Storage,
+    ) -> Result<u8, String> {
         for i in 0..MAX_CREDENTIALS {
             if let Ok(cred) = Self::get_credential(i, encryption_key, nvs_storage) {
                 if cred.domain_name == name {
@@ -187,15 +220,14 @@ impl Credential {
     pub fn delete_credential_by_name(
         name: String,
         encryption_key: &[u8; AES_KEY_LEN],
-        nvs_storage: &mut storage::Storage
+        nvs_storage: &mut storage::Storage,
     ) -> Result<(), String> {
         match Self::credential_name_to_index(name, encryption_key, nvs_storage) {
             Ok(index) => {
                 Credential::delete_credential(index, nvs_storage)?;
                 Ok(())
-            },
-            Err(e) => Err(e)
+            }
+            Err(e) => Err(e),
         }
     }
-
 }

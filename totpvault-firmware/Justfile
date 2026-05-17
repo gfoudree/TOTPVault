@@ -147,4 +147,5 @@ qemu-test:
         -drive file={{FLASH_IMAGE}},if=mtd,format=raw \
         -drive file={{EFUSE_FILE}},if=none,format=raw,id=efuse \
         -global driver=nvram.esp32c3.efuse,property=drive,value=efuse \
-        -serial mon:stdio
+        -chardev socket,path=/tmp/qemu-serial.sock,server=on,wait=off,id=char0 \
+        -serial chardev:char0 -S

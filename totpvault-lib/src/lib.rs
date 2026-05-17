@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use totp_rs;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -44,13 +44,15 @@ pub const SUCCESS_MSG: &str = "Success!";
 
 fn print_debug_msg(_msg: String) {
     // For the desktop
-    #[cfg(not(target_arch = "riscv32"))] {
+    #[cfg(not(target_arch = "riscv32"))]
+    {
         use log::debug;
         debug!("{}", _msg);
     }
 
     // For the ESP32
-    #[cfg(all(target_arch = "riscv32", debug_assertions))] {
+    #[cfg(all(target_arch = "riscv32", debug_assertions))]
+    {
         println!("{}", _msg);
     }
 }
@@ -153,47 +155,85 @@ pub struct GetSettingsResponseMsg {
 }
 
 impl Message for TOTPCodeMsg {
-    fn validate(&self) -> bool { true }
-    fn message_type_byte(&self) -> u8 { MSG_TOTP_CODE }
+    fn validate(&self) -> bool {
+        true
+    }
+    fn message_type_byte(&self) -> u8 {
+        MSG_TOTP_CODE
+    }
 }
 impl Message for AttestationResponseMsg {
-    fn validate(&self) -> bool { true }
-    fn message_type_byte(&self) -> u8 { MSG_ATTESTATION_RESPONSE }
+    fn validate(&self) -> bool {
+        true
+    }
+    fn message_type_byte(&self) -> u8 {
+        MSG_ATTESTATION_RESPONSE
+    }
 }
 impl Message for SystemInfoMsg {
-    fn validate(&self) -> bool { true }
-    fn message_type_byte(&self) -> u8 { MSG_SYSINFO }
+    fn validate(&self) -> bool {
+        true
+    }
+    fn message_type_byte(&self) -> u8 {
+        MSG_SYSINFO
+    }
 }
 
 impl Message for CredentialListMsg {
-    fn validate(&self) -> bool { true }
-    fn message_type_byte(&self) -> u8 { MSG_LIST_CREDS }
+    fn validate(&self) -> bool {
+        true
+    }
+    fn message_type_byte(&self) -> u8 {
+        MSG_LIST_CREDS
+    }
 }
 impl Message for StatusMsg {
-    fn validate(&self) -> bool { true }
-    fn message_type_byte(&self) -> u8 { MSG_STATUS_MSG }
+    fn validate(&self) -> bool {
+        true
+    }
+    fn message_type_byte(&self) -> u8 {
+        MSG_STATUS_MSG
+    }
 }
 
 impl Message for AuthenticateChallengeMsg {
     fn validate(&self) -> bool {
-        if self.nonce_challenge.len() > 100 || self.nonce_challenge.len() < 63 { // Base64 encoding means length changes, so a bit of leeway here
-            print_debug_msg(format!("Nonce size of {} is != {}", self.nonce_challenge.len(), NONCE_CHALLENGE_LEN));
+        if self.nonce_challenge.len() > 100 || self.nonce_challenge.len() < 63 {
+            // Base64 encoding means length changes, so a bit of leeway here
+            print_debug_msg(format!(
+                "Nonce size of {} is != {}",
+                self.nonce_challenge.len(),
+                NONCE_CHALLENGE_LEN
+            ));
             return false;
         }
         true
     }
-    fn message_type_byte(&self) -> u8 { CMD_ATTEST }
+    fn message_type_byte(&self) -> u8 {
+        CMD_ATTEST
+    }
 }
 
 impl Message for GetSettingMsg {
-    fn validate(&self) -> bool { self.key.len() > 0 && self.key.len() < MAX_SETTING_KEY_LEN } // No fields to validate
-    fn message_type_byte(&self) -> u8 { CMD_GET_SETTINGS }
+    fn validate(&self) -> bool {
+        self.key.len() > 0 && self.key.len() < MAX_SETTING_KEY_LEN
+    } // No fields to validate
+    fn message_type_byte(&self) -> u8 {
+        CMD_GET_SETTINGS
+    }
 }
 
 impl Message for SetSettingMsg {
     fn validate(&self) -> bool {
-        if self.key.is_empty() || self.value.is_empty() || self.value.len() > MAX_SETTING_KEY_LEN || self.key.len() > MAX_SETTING_KEY_LEN {
-            print_debug_msg(format!("Setting key or value cannot be empty nor can it be greater than {} bytes", MAX_SETTING_KEY_LEN));
+        if self.key.is_empty()
+            || self.value.is_empty()
+            || self.value.len() > MAX_SETTING_KEY_LEN
+            || self.key.len() > MAX_SETTING_KEY_LEN
+        {
+            print_debug_msg(format!(
+                "Setting key or value cannot be empty nor can it be greater than {} bytes",
+                MAX_SETTING_KEY_LEN
+            ));
             return false;
         }
         // Validate known settings
@@ -202,22 +242,31 @@ impl Message for SetSettingMsg {
                 if self.value.as_str() == AUTOLOCK_ON || self.value.as_str() == AUTOLOCK_OFF {
                     true
                 } else {
-                    print_debug_msg(format!("Invalid value for {}: {}", SETTING_AUTOLOCK, self.value));
+                    print_debug_msg(format!(
+                        "Invalid value for {}: {}",
+                        SETTING_AUTOLOCK, self.value
+                    ));
                     false
                 }
-            },
+            }
             _ => {
                 print_debug_msg(format!("Unknown setting key: {}", self.key));
                 false
             }
         }
     }
-    fn message_type_byte(&self) -> u8 { CMD_SET_SETTINGS }
+    fn message_type_byte(&self) -> u8 {
+        CMD_SET_SETTINGS
+    }
 }
 
 impl Message for GetSettingsResponseMsg {
-    fn validate(&self) -> bool { true } // No specific validation for the response message itself
-    fn message_type_byte(&self) -> u8 { MSG_GET_SETTINGS_RESPONSE }
+    fn validate(&self) -> bool {
+        true
+    } // No specific validation for the response message itself
+    fn message_type_byte(&self) -> u8 {
+        MSG_GET_SETTINGS_RESPONSE
+    }
 }
 
 // Returns the user-friendly display name for a given internal setting key since the NVS name has to be short due to max len of NVS keys
@@ -231,60 +280,82 @@ pub fn get_setting_display_name(key: &str) -> &str {
 impl Message for DeleteEntryMsg {
     fn validate(&self) -> bool {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
-            print_debug_msg(format!("Domain name is > {} bytes or < {} bytes!", MAX_DOMAIN_LEN, MIN_DOMAIN_LEN));
+            print_debug_msg(format!(
+                "Domain name is > {} bytes or < {} bytes!",
+                MAX_DOMAIN_LEN, MIN_DOMAIN_LEN
+            ));
             return false;
         }
         true
     }
-    fn message_type_byte(&self) -> u8 { CMD_DELETE }
+    fn message_type_byte(&self) -> u8 {
+        CMD_DELETE
+    }
 }
 
 impl Message for SetTimeMsg {
     fn validate(&self) -> bool {
         // Check if the timestamp is something valid (later than 10/10/2024)
         if self.unix_timestamp < MIN_TIMESTAMP {
-            print_debug_msg(format!("UNIX timestamp {} is less than {}", self.unix_timestamp, MIN_TIMESTAMP));
+            print_debug_msg(format!(
+                "UNIX timestamp {} is less than {}",
+                self.unix_timestamp, MIN_TIMESTAMP
+            ));
             return false;
         }
         true
     }
-    fn message_type_byte(&self) -> u8 { CMD_SET_TIME }
+    fn message_type_byte(&self) -> u8 {
+        CMD_SET_TIME
+    }
 }
 
 impl Message for UnlockMsg {
     fn validate(&self) -> bool {
         if self.password.len() < MIN_PW_LEN || self.password.len() > MAX_PW_LEN {
-            print_debug_msg(format!("Password length is > {} or < {} bytes!", MAX_PW_LEN, MIN_PW_LEN));
+            print_debug_msg(format!(
+                "Password length is > {} or < {} bytes!",
+                MAX_PW_LEN, MIN_PW_LEN
+            ));
             return false;
         }
         true
     }
-    fn message_type_byte(&self) -> u8 { CMD_UNLOCK_VAULT }
+    fn message_type_byte(&self) -> u8 {
+        CMD_UNLOCK_VAULT
+    }
 }
 
 impl Message for InitVaultMsg {
     fn validate(&self) -> bool {
         if self.password.len() < MIN_PW_LEN || self.password.len() > MAX_PW_LEN {
-            print_debug_msg(format!("Password length is > {} or < {} bytes!", MAX_PW_LEN, MIN_PW_LEN));
+            print_debug_msg(format!(
+                "Password length is > {} or < {} bytes!",
+                MAX_PW_LEN, MIN_PW_LEN
+            ));
             return false;
         }
         // Check if password is valid ASCII
         self.password.chars().all(|c| c.is_ascii())
-
     }
-    fn message_type_byte(&self) -> u8 { CMD_INIT_VAULT }
+    fn message_type_byte(&self) -> u8 {
+        CMD_INIT_VAULT
+    }
 }
 
 pub fn validate_totp_secret(totp_secret: &str) -> Result<(), String> {
     if totp_secret.len() > MAX_TOTP_SECRET_LEN || totp_secret.len() < MIN_TOTP_SECRET_LEN {
-        return Err(format!("TOTP secret is > {} bytes or < {} bytes!", MAX_TOTP_SECRET_LEN, MIN_TOTP_SECRET_LEN));
+        return Err(format!(
+            "TOTP secret is > {} bytes or < {} bytes!",
+            MAX_TOTP_SECRET_LEN, MIN_TOTP_SECRET_LEN
+        ));
     }
 
     // Finally, make sure that the TOTP library can encode it
     if let Ok(totp_secret_parsed) = totp_rs::Secret::Encoded(totp_secret.to_string()).to_bytes() {
         match totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, totp_secret_parsed) {
             Ok(_) => Ok(()),
-            Err(e) => Err(format!("TOTP Secret is invalid: {}", e))
+            Err(e) => Err(format!("TOTP Secret is invalid: {}", e)),
         }
     } else {
         Err("TOTP Secret is invalid".to_string())
@@ -294,7 +365,10 @@ pub fn validate_totp_secret(totp_secret: &str) -> Result<(), String> {
 impl Message for CreateEntryMsg {
     fn validate(&self) -> bool {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
-            print_debug_msg(format!("Domain name is > {} bytes or < {} bytes!", MAX_DOMAIN_LEN, MIN_DOMAIN_LEN));
+            print_debug_msg(format!(
+                "Domain name is > {} bytes or < {} bytes!",
+                MAX_DOMAIN_LEN, MIN_DOMAIN_LEN
+            ));
             return false;
         }
 
@@ -306,17 +380,22 @@ impl Message for CreateEntryMsg {
             }
         }
     }
-    fn message_type_byte(&self) -> u8 { CMD_CREATE }
+    fn message_type_byte(&self) -> u8 {
+        CMD_CREATE
+    }
 }
-
 
 impl Message for DisplayCodeMsg {
     fn validate(&self) -> bool {
         if self.domain_name.len() > MAX_DOMAIN_LEN || self.domain_name.len() < MIN_DOMAIN_LEN {
-            print_debug_msg(format!("Domain name is > {MAX_DOMAIN_LEN} bytes or < {MIN_DOMAIN_LEN} bytes!"));
+            print_debug_msg(format!(
+                "Domain name is > {MAX_DOMAIN_LEN} bytes or < {MIN_DOMAIN_LEN} bytes!"
+            ));
             return false;
         }
         true
     }
-    fn message_type_byte(&self) -> u8 { CMD_DISPLAY_CODE }
+    fn message_type_byte(&self) -> u8 {
+        CMD_DISPLAY_CODE
+    }
 }

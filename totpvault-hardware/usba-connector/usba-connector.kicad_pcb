@@ -110,7 +110,6 @@
 			(psnegative no)
 			(psa4output no)
 			(plot_black_and_white yes)
-			(plotinvisibletext no)
 			(sketchpadsonfab no)
 			(plotpadnumbers no)
 			(hidednponfab no)
@@ -1389,18 +1388,6 @@
 			(fill no)
 			(layer "F.Fab")
 			(uuid "9df94e93-9c91-4467-9ad1-713190454177")
-		)
-		(fp_text user "${REFERENCE}"
-			(at 0 -0.25 270)
-			(layer "F.Fab")
-			(hide yes)
-			(uuid "91d7f569-8e9c-466d-a417-318610dafe89")
-			(effects
-				(font
-					(size 0.25 0.25)
-					(thickness 0.04)
-				)
-			)
 		)
 		(pad "1" smd roundrect
 			(at -0.5 0 270)
@@ -5307,18 +5294,6 @@
 			(layer "F.Fab")
 			(uuid "b3acc856-11b3-4682-ae4f-0de64b4d7f40")
 		)
-		(fp_text user "${REFERENCE}"
-			(at 0 -0.25 90)
-			(layer "F.Fab")
-			(hide yes)
-			(uuid "034edeb6-0dbf-474d-bbab-371c10f51593")
-			(effects
-				(font
-					(size 0.25 0.25)
-					(thickness 0.04)
-				)
-			)
-		)
 		(pad "1" smd roundrect
 			(at -0.5 0 90)
 			(size 0.56 0.62)
@@ -7779,18 +7754,6 @@
 			(layer "F.Fab")
 			(uuid "3657c4f3-7fbe-4513-89a5-bfe68ca3e9e7")
 		)
-		(fp_text user "${REFERENCE}"
-			(at 0 -0.25 0)
-			(layer "F.Fab")
-			(hide yes)
-			(uuid "cbed5506-ae3f-4b03-a39e-50434024e36b")
-			(effects
-				(font
-					(size 0.25 0.25)
-					(thickness 0.04)
-				)
-			)
-		)
 		(pad "1" smd roundrect
 			(at -0.5 0)
 			(size 0.56 0.62)
@@ -9573,18 +9536,6 @@
 			(fill no)
 			(layer "F.Fab")
 			(uuid "84ee5bb4-464a-40fc-ba7a-617fcaeb6eae")
-		)
-		(fp_text user "${REFERENCE}"
-			(at 0 -0.25 0)
-			(layer "F.Fab")
-			(hide yes)
-			(uuid "98033e21-503a-46af-9059-d1129d6a1efa")
-			(effects
-				(font
-					(size 0.25 0.25)
-					(thickness 0.04)
-				)
-			)
 		)
 		(pad "1" smd roundrect
 			(at -0.5 0 180)
@@ -12322,7 +12273,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "PassVault v1.0"
+	(gr_text "TOTPVault v1.0"
 		(at 100.9 71 0)
 		(layer "F.SilkS")
 		(uuid "93538517-85e8-4383-b720-389348c247d2")

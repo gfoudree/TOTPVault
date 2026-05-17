@@ -1,5 +1,5 @@
 use esp_idf_svc::nvs::*;
-use esp_idf_sys::{ESP_OK, nvs_flash_erase, nvs_flash_init};
+use esp_idf_sys::{nvs_flash_erase, nvs_flash_init, ESP_OK};
 
 use crate::crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN};
 use log::debug;
@@ -10,30 +10,46 @@ const NVS_SETTINGS_NAMESPACE: &str = "settings";
 
 pub struct Storage {
     settings_nvs_h: EspNvs<NvsDefault>,
-    vault_nvs_h: EspNvs<NvsDefault>
+    vault_nvs_h: EspNvs<NvsDefault>,
 }
 
 impl Storage {
     pub fn new(nvs_partition: EspNvsPartition<NvsDefault>) -> Result<Self, String> {
-        let vault = EspNvs::new(nvs_partition.clone(), NVS_VAULT_NAMESPACE, true).map_err(|e| e.to_string())?;
-        let settings = EspNvs::new(nvs_partition.clone(), NVS_SETTINGS_NAMESPACE, true).map_err(|e| e.to_string())?;
-        Ok(Self{settings_nvs_h: settings, vault_nvs_h: vault})
+        let vault = EspNvs::new(nvs_partition.clone(), NVS_VAULT_NAMESPACE, true)
+            .map_err(|e| e.to_string())?;
+        let settings = EspNvs::new(nvs_partition.clone(), NVS_SETTINGS_NAMESPACE, true)
+            .map_err(|e| e.to_string())?;
+        Ok(Self {
+            settings_nvs_h: settings,
+            vault_nvs_h: vault,
+        })
     }
-    pub fn format_nvs_partition(&mut self, nvs_partition: EspNvsPartition<NvsDefault>) -> Result<(), String> {
+    pub fn format_nvs_partition(
+        &mut self,
+        nvs_partition: EspNvsPartition<NvsDefault>,
+    ) -> Result<(), String> {
         unsafe {
             let mut e = nvs_flash_erase();
             if e != ESP_OK {
-                return Err(format!("Unable to format default NVS partition! Error = {}", e));
+                return Err(format!(
+                    "Unable to format default NVS partition! Error = {}",
+                    e
+                ));
             }
             e = nvs_flash_init();
             if e != ESP_OK {
-                return Err(format!("Unable to initialize default NVS partition! Error = {}", e));
+                return Err(format!(
+                    "Unable to initialize default NVS partition! Error = {}",
+                    e
+                ));
             }
         }
 
         // Refresh NVS handles since they're invalid after wiping the NVS
-        self.vault_nvs_h = EspNvs::new(nvs_partition.clone(), NVS_VAULT_NAMESPACE, true).map_err(|e| e.to_string())?;
-        self.settings_nvs_h = EspNvs::new(nvs_partition, NVS_SETTINGS_NAMESPACE, true).map_err(|e| e.to_string())?;
+        self.vault_nvs_h = EspNvs::new(nvs_partition.clone(), NVS_VAULT_NAMESPACE, true)
+            .map_err(|e| e.to_string())?;
+        self.settings_nvs_h =
+            EspNvs::new(nvs_partition, NVS_SETTINGS_NAMESPACE, true).map_err(|e| e.to_string())?;
 
         Ok(())
     }
@@ -41,7 +57,7 @@ impl Storage {
     pub fn nvs_write_blob(&mut self, key: &str, val: &[u8]) -> Result<(), String> {
         match self.vault_nvs_h.set_blob(key, val) {
             Ok(_) => Ok(()),
-            Err(e) => Err(format!("Unable to set blob {}. ESP error = {}", key, e))
+            Err(e) => Err(format!("Unable to set blob {}. ESP error = {}", key, e)),
         }
     }
 
@@ -49,11 +65,16 @@ impl Storage {
         debug!("Writing setting: {} = {}", key, val);
         match self.settings_nvs_h.set_str(key, val) {
             Ok(_) => Ok(()),
-            Err(e) => Err(format!("Unable to set setting {}. ESP error = {}", key, e))
+            Err(e) => Err(format!("Unable to set setting {}. ESP error = {}", key, e)),
         }
     }
 
-    pub fn nvs_write_blob_encrypted(&mut self, key: &str, val: &[u8], encryption_key: &[u8; AES_KEY_LEN]) -> Result<(), String> {
+    pub fn nvs_write_blob_encrypted(
+        &mut self,
+        key: &str,
+        val: &[u8],
+        encryption_key: &[u8; AES_KEY_LEN],
+    ) -> Result<(), String> {
         match encrypt_block(val, encryption_key) {
             Ok((cipher_text, iv)) => {
                 // Store data as IV + ciphertext
@@ -62,18 +83,27 @@ impl Storage {
 
                 match self.vault_nvs_h.set_blob(key, &buf) {
                     Ok(_) => return Ok(()),
-                    Err(e) => return Err(format!("Unable to set blob {}. ESP error = {}", key, e))
+                    Err(e) => return Err(format!("Unable to set blob {}. ESP error = {}", key, e)),
                 };
-            },
-            Err(e) => return Err(format!("Unable to encrypt blob {}. Encryption error = {}", key, e))
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Unable to encrypt blob {}. Encryption error = {}",
+                    key, e
+                ))
+            }
         }
     }
 
     pub fn nvs_read_blob(&mut self, key: &str) -> Result<Vec<u8>, String> {
         let mut buf = [0_u8; 512];
 
-        let nvs_read_result = self.vault_nvs_h.get_blob(key, &mut buf).
-            map_err(|e| format!("Unable to get blob {}. Database corrupted(?) please reset it. Error = {}", key, e))?;
+        let nvs_read_result = self.vault_nvs_h.get_blob(key, &mut buf).map_err(|e| {
+            format!(
+                "Unable to get blob {}. Database corrupted(?) please reset it. Error = {}",
+                key, e
+            )
+        })?;
         if let Some(val) = nvs_read_result {
             Ok(val.to_vec())
         } else {
@@ -83,7 +113,7 @@ impl Storage {
 
     pub fn nvs_read_setting(&mut self, key: &str) -> Result<String, String> {
         debug!("Reading setting: {}", key);
-        let mut buf = [0_u8; MAX_SETTING_KEY_LEN+1]; // Max setting value length (e.g., "yes", "no", etc.)
+        let mut buf = [0_u8; MAX_SETTING_KEY_LEN + 1]; // Max setting value length (e.g., "yes", "no", etc.)
         match self.settings_nvs_h.get_str(key, &mut buf) {
             Ok(Some(val)) => Ok(val.to_string()),
             Ok(None) => Err(format!("Setting '{}' not found.", key)),
@@ -91,19 +121,33 @@ impl Storage {
         }
     }
 
-    pub fn nvs_read_blob_encrypted(&mut self, key: &str, encryption_key: &[u8; AES_KEY_LEN]) -> Result<Vec<u8>, String> {
+    pub fn nvs_read_blob_encrypted(
+        &mut self,
+        key: &str,
+        encryption_key: &[u8; AES_KEY_LEN],
+    ) -> Result<Vec<u8>, String> {
         let mut buf = [0_u8; 512]; // Note: Max expected size of encrypted blob
 
-        let nvs_read_result = self.vault_nvs_h.get_blob(key, &mut buf).
-            map_err(|e| format!("Unable to get blob {}. Database corrupted(?) please reset it. Error = {}", key, e))?;
+        let nvs_read_result = self.vault_nvs_h.get_blob(key, &mut buf).map_err(|e| {
+            format!(
+                "Unable to get blob {}. Database corrupted(?) please reset it. Error = {}",
+                key, e
+            )
+        })?;
         if let Some(val) = nvs_read_result {
+            if val.len() < AES_IV_LEN + 1 {
+                return Err("Error decrypting blob! Invalid length".to_string());
+            }
+
             // Separate IV from ciphertext
             let iv = &val[0..AES_IV_LEN];
             let ciphertext = &val[AES_IV_LEN..];
 
-            let plaintext = match decrypt_block( ciphertext, encryption_key, iv) {
+            let plaintext = match decrypt_block(ciphertext, encryption_key, iv) {
                 Ok(v) => v,
-                Err(e) => { return Err(format!("Error decrypting blob! {}", e)); }
+                Err(e) => {
+                    return Err(format!("Error decrypting blob! {}", e));
+                }
             };
 
             Ok(plaintext)
@@ -112,17 +156,3 @@ impl Storage {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

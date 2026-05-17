@@ -1,3 +1,4 @@
+use argon2::{Algorithm, Argon2, Params, Version};
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
 use chrono::Utc;
@@ -14,36 +15,45 @@ use esp_idf_svc::{
     sys,
 };
 use log::{error, info};
-use pbkdf2;
 use rmp_serde::Serializer;
 use serde::Serialize;
-use sha2::Sha256;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use subtle::ConstantTimeEq;
 use totpvault_lib;
 use totpvault_lib::*;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 mod credential;
 mod crypto;
 mod storage;
 
 const SALT_LEN: usize = 32; // 256 bits
-const KDF_ROUNDS: u32 = 100;
+
+// Argon2id parameters for ESP32-C3: m=16384 (16 KiB memory cost), t=3 iterations, p=1 thread
+const ARGON2_M_COST: u32 = 16384; // memory in KiB
+const ARGON2_T_COST: u32 = 3; // iterations
+const ARGON2_P_COST: u32 = 1; // parallelism (single-threaded)
 
 const ENCRYPTION_MAGIC: [u8; 8] = [0xDE, 0xAD, 0xBE, 0xEF, 0xC0, 0xFF, 0xEE, 0x00];
 
 const MAX_TIMESTAMP_SET_DELTA: u64 = 1024;
+const AUTO_VAULT_LOCK_SECONDS: u64 = 600;
 const NVS_KEY_ED25519: &str = "ED25519_KEY";
 
 // Static (global) variable for 'static lifetime. Mutex for safety, Cell<bool> allows multiple mutable references by only allowing 'interior mutability'
 static VAULT_STATUS_UNLOCKED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+
+#[derive(Zeroize, ZeroizeOnDrop)] // Have key zeroize on all dropped paths
 struct System {
     time_set: bool,
     key: [u8; 32],
+
+    #[zeroize(skip)]
     settings: HashMap<String, String>,
+    #[zeroize(skip)]
     nvs_storage: storage::Storage,
+    #[zeroize(skip)]
     nvs_partition_handle: EspNvsPartition<NvsDefault>,
 }
 
@@ -75,9 +85,13 @@ impl System {
                         }
                     };
                     if let Err(write_err) = self.nvs_storage.nvs_write_setting(key, default_value) {
-                        error!("Failed to write default setting {} = {}: {}",key, default_value, write_err);
+                        error!(
+                            "Failed to write default setting {} = {}: {}",
+                            key, default_value, write_err
+                        );
                     } else {
-                        self.settings.insert(key.to_string(), default_value.to_string());
+                        self.settings
+                            .insert(key.to_string(), default_value.to_string());
                     }
                 }
             }
@@ -90,10 +104,12 @@ impl System {
         }
 
         // Update in NVS
-        self.nvs_storage.nvs_write_setting(&set_msg.key, &set_msg.value)?;
+        self.nvs_storage
+            .nvs_write_setting(&set_msg.key, &set_msg.value)?;
 
         // Update in current system state
-        self.settings.insert(set_msg.key.to_string(), set_msg.value.to_string());
+        self.settings
+            .insert(set_msg.key.to_string(), set_msg.value.to_string());
 
         Ok(())
     }
@@ -106,7 +122,8 @@ impl System {
 
     fn setup_ed25519(&mut self) -> Result<(), String> {
         let mut secret_bytes: [u8; SECRET_KEY_LENGTH] = gen_ed25519_keypair().to_bytes();
-        self.nvs_storage.nvs_write_blob(NVS_KEY_ED25519, &secret_bytes)?;
+        self.nvs_storage
+            .nvs_write_blob(NVS_KEY_ED25519, &secret_bytes)?;
         secret_bytes.zeroize();
         Ok(())
     }
@@ -119,10 +136,14 @@ impl System {
             return Err("Invalid InitVault message".to_string());
         }
 
+        // Lock the vault and zeroize the key before re-initializing.
+        // This handles the case where init_vault is called while the vault is already unlocked.
         critical_section::with(|cs| VAULT_STATUS_UNLOCKED.borrow(cs).set(false));
+        self.key.zeroize();
 
         // Erase NVS partition
-        self.nvs_storage.format_nvs_partition(self.nvs_partition_handle.clone())?;
+        self.nvs_storage
+            .format_nvs_partition(self.nvs_partition_handle.clone())?;
         self.setup_ed25519()?;
 
         // Generate encryption salt and store it in the database
@@ -138,13 +159,15 @@ impl System {
         }
 
         // Init metadata
-        self.nvs_storage.nvs_write_blob_encrypted("magic", &ENCRYPTION_MAGIC, &enc_key)?;
+        self.nvs_storage
+            .nvs_write_blob_encrypted("magic", &ENCRYPTION_MAGIC, &enc_key)?;
 
         Ok(())
     }
 
     fn attest(&mut self, challenge_msg_bytes: &[u8]) -> Result<AttestationResponseMsg, String> {
-        let challenge_msg = rmp_serde::from_slice::<AuthenticateChallengeMsg>(&challenge_msg_bytes[1..])
+        let challenge_msg =
+            rmp_serde::from_slice::<AuthenticateChallengeMsg>(&challenge_msg_bytes[1..])
                 .map_err(|_| "Invalid AuthenticateChallenge message")?;
         if !challenge_msg.validate() {
             return Err("Invalid AuthenticateChallenge message".to_string());
@@ -161,15 +184,23 @@ impl System {
         match sign_challenge(&challenge_bytes, &mut self.nvs_storage) {
             Ok(sig) => {
                 let signature_encoded = BASE64_STANDARD.encode(sig.to_vec());
-                Ok(AttestationResponseMsg { message: signature_encoded })
+                Ok(AttestationResponseMsg {
+                    message: signature_encoded,
+                })
             }
-            Err(e) => Err(format!("Error signing challenge! {}", e))
+            Err(e) => Err(format!("Error signing challenge! {}", e)),
         }
     }
 
     fn derive_encryption_key(password: &str, salt: &[u8; SALT_LEN]) -> [u8; 32] {
-        let key = pbkdf2::pbkdf2_hmac_array::<Sha256, 32>(password.as_bytes(), salt, KDF_ROUNDS);
+        let params = Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, Some(32))
+            .expect("Invalid Argon2 parameters");
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
+        let mut key = [0u8; 32];
+        argon2
+            .hash_password_into(password.as_bytes(), salt, &mut key)
+            .expect("Argon2id key derivation failed");
         key
     }
 
@@ -180,18 +211,27 @@ impl System {
 
         match rmp_serde::from_slice::<DisplayCodeMsg>(&cmd_buf[1..read_bytes]) {
             Ok(display_code_msg) => {
-                let index = Credential::credential_name_to_index(display_code_msg.domain_name, &self.key, &mut self.nvs_storage)?;
+                let index = Credential::credential_name_to_index(
+                    display_code_msg.domain_name.to_lowercase(),
+                    &self.key,
+                    &mut self.nvs_storage,
+                )?;
                 let mut cred = Credential::get_credential(index, &self.key, &mut self.nvs_storage)?;
 
                 let totp_code = Credential::gen_totp(&cred)?;
                 cred.totp_secret_decrypted.zeroize();
                 Ok(totp_code)
             }
-            Err(_e) => Err("Invalid display code message".to_string())
+            Err(_e) => Err("Invalid display code message".to_string()),
         }
     }
 
-    pub fn unlock_vault(&mut self, cmd_buf: &[u8; 512], read_bytes: usize, unlocked_led: &mut PinDriver<Gpio10, Output>) -> Result<(), String> {
+    pub fn unlock_vault(
+        &mut self,
+        cmd_buf: &[u8; 512],
+        read_bytes: usize,
+        unlocked_led: &mut PinDriver<Gpio10, Output>,
+    ) -> Result<(), String> {
         let unlock_msg = rmp_serde::from_slice::<UnlockMsg>(&cmd_buf[1..read_bytes])
             .map_err(|_| "Invalid Unlock message".to_string())?;
 
@@ -203,16 +243,24 @@ impl System {
         let salt: [u8; SALT_LEN] = match self.nvs_storage.nvs_read_blob("salt")?.try_into() {
             Ok(v) => v,
             Err(_) => {
-                return Err("Database is corrupted, salt is not a valid length. Please reset the database!".to_string());
+                return Err(
+                    "Database is corrupted, salt is not a valid length. Please reset the database!"
+                        .to_string(),
+                );
             }
         };
 
         let key = Self::derive_encryption_key(unlock_msg.password.as_str(), &salt);
 
         // Test if the vault is unlocked
-        let decrypted_magic = self.nvs_storage.nvs_read_blob_encrypted("magic", &key).map_err(|_| {"Unable to decrypt value. Corrupted data or wrong password!".to_string()})?;
+        let decrypted_magic = self
+            .nvs_storage
+            .nvs_read_blob_encrypted("magic", &key)
+            .map_err(|_| {
+                "Unable to decrypt value. Corrupted data or wrong password!".to_string()
+            })?;
 
-        // Use constant time compare for security, although it's not necessary maybe
+        // Use constant time compare for security, although it's not necessary maybe since GCM mode authenticates decrypted block
         if decrypted_magic.ct_ne(&ENCRYPTION_MAGIC).unwrap_u8() == 1 {
             return Err("Invalid password".to_string());
         }
@@ -226,7 +274,8 @@ impl System {
     }
 
     fn set_time(&mut self, cmd_buf: &[u8; 512], read_bytes: usize) -> Result<(), String> {
-        let time_msg = rmp_serde::from_slice::<SetTimeMsg>(&cmd_buf[1..read_bytes]).map_err(|_| "Invalid SetTime message".to_string())?;
+        let time_msg = rmp_serde::from_slice::<SetTimeMsg>(&cmd_buf[1..read_bytes])
+            .map_err(|_| "Invalid SetTime message".to_string())?;
 
         if !time_msg.validate() {
             return Err("Invalid SetTime message".to_string());
@@ -236,13 +285,18 @@ impl System {
 
         if self.time_set {
             // Time has been set already, check if the new time is more than the max allowed delta
-            let mut current_tv = sys::timeval { tv_sec: 0, tv_usec: 0 };
+            let mut current_tv = sys::timeval {
+                tv_sec: 0,
+                tv_usec: 0,
+            };
             unsafe {
                 sys::gettimeofday(&mut current_tv, core::ptr::null_mut());
             }
 
             // Is the new timestamp LESS than the current one OR is the difference between the new and old one > the allowed delta?
-            if new_unix_timestamp < current_tv.tv_sec as u64 || (new_unix_timestamp - current_tv.tv_sec as u64) > MAX_TIMESTAMP_SET_DELTA {
+            if new_unix_timestamp < current_tv.tv_sec as u64
+                || (new_unix_timestamp - current_tv.tv_sec as u64) > MAX_TIMESTAMP_SET_DELTA
+            {
                 return Err("Invalid timestamp".to_string());
             }
         }
@@ -277,7 +331,7 @@ impl System {
         if create_msg.validate() {
             let mut cred = Credential::default();
             cred.in_use = true;
-            cred.domain_name = create_msg.domain_name.clone();
+            cred.domain_name = create_msg.domain_name.clone().to_lowercase(); // Keep everything in lowercase
             cred.totp_secret_decrypted = Some(create_msg.totp_secret.clone());
 
             // Save the credential
@@ -294,7 +348,8 @@ impl System {
             Ok(_) => {}
             Err(_) => {
                 // Erase NVS partition
-                self.nvs_storage.format_nvs_partition(self.nvs_partition_handle.clone())?;
+                self.nvs_storage
+                    .format_nvs_partition(self.nvs_partition_handle.clone())?;
                 // Setup ED25519 Key
                 self.setup_ed25519()?;
             }
@@ -303,7 +358,8 @@ impl System {
     }
 
     fn get_system_info(&mut self) -> Result<SystemInfoMsg, String> {
-        let pubkey = get_ed25519_public_key_nvs(&mut self.nvs_storage).map_err(|e| format!("Unable to get device public key. {}", e))?;
+        let pubkey = get_ed25519_public_key_nvs(&mut self.nvs_storage)
+            .map_err(|e| format!("Unable to get device public key. {}", e))?;
 
         let mut info_msg = SystemInfoMsg {
             total_slots: MAX_CREDENTIALS,
@@ -316,7 +372,9 @@ impl System {
         };
 
         if get_vault_unlock_status() {
-            let num_used_creds = Credential::get_num_used_credentials(&self.key, &mut self.nvs_storage).map_err(|e| format!("Unable to enumerate stored credentials. {}", e))?;
+            let num_used_creds =
+                Credential::get_num_used_credentials(&self.key, &mut self.nvs_storage)
+                    .map_err(|e| format!("Unable to enumerate stored credentials. {}", e))?;
             info_msg.used_slots = num_used_creds;
             info_msg.free_slots = MAX_CREDENTIALS - num_used_creds;
         }
@@ -338,7 +396,10 @@ pub fn send_message<T: Message + Serialize + Debug>(uart: &mut uart::UartDriver,
 }
 
 pub fn send_response_message(uart: &mut uart::UartDriver, msg: &str, error: bool) {
-    let status_msg = StatusMsg { error, message: msg.to_string() };
+    let status_msg = StatusMsg {
+        error,
+        message: msg.to_string(),
+    };
     send_message(uart, &status_msg);
 }
 
@@ -347,7 +408,9 @@ fn get_vault_unlock_status() -> bool {
 }
 
 fn arm_auto_lock_timer(autolock_timer: &mut TimerDriver) -> () {
-    autolock_timer.set_alarm(autolock_timer.tick_hz() * 60).unwrap();
+    autolock_timer
+        .set_alarm(autolock_timer.tick_hz() * AUTO_VAULT_LOCK_SECONDS)
+        .unwrap();
     autolock_timer.set_counter(0).unwrap();
     autolock_timer.enable_interrupt().unwrap();
     autolock_timer.enable_alarm(true).unwrap();
@@ -390,7 +453,9 @@ fn main() {
     unlocked_led.set_low().unwrap();
     let mut lock_button = PinDriver::input(peripherals.pins.gpio9).unwrap();
     lock_button.set_pull(Pull::Up).unwrap(); // Pull "BOOT" button up
-    lock_button.set_interrupt_type(InterruptType::PosEdge).unwrap();
+    lock_button
+        .set_interrupt_type(InterruptType::PosEdge)
+        .unwrap();
 
     // Lock button handler
     unsafe {
@@ -407,6 +472,7 @@ fn main() {
 
     if let Err(e) = sys.first_boot_hook() {
         error!("Critical error on first boot! {e}");
+        sys.key.zeroize();
         restart();
     }
 
@@ -418,7 +484,8 @@ fn main() {
         Option::<AnyIOPin>::None,
         Option::<AnyIOPin>::None,
         &config,
-    ).expect("Error initializing UART Driver");
+    )
+    .expect("Error initializing UART Driver");
 
     loop {
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -429,7 +496,7 @@ fn main() {
             false => {
                 unlocked_led.set_low().unwrap();
                 sys.key.zeroize(); // Also zeroize out the key. Handles situation when vault is locked via interrupt
-            },
+            }
         }
 
         let mut buf: [u8; 512] = [0; 512];
@@ -475,11 +542,16 @@ fn main() {
                             match Credential::list_credentials(&sys.key, &mut sys.nvs_storage) {
                                 Ok(creds) => {
                                     // Transform them into CredentialListMsg
-                                    let creds_vec = creds.iter().map(|cred| CredentialInfo {
+                                    let creds_vec = creds
+                                        .iter()
+                                        .map(|cred| CredentialInfo {
                                             domain_name: cred.domain_name.clone(),
                                             slot_id: cred.slot_id,
-                                        }).collect();
-                                    let cred_list_msg = CredentialListMsg { credentials: creds_vec, };
+                                        })
+                                        .collect();
+                                    let cred_list_msg = CredentialListMsg {
+                                        credentials: creds_vec,
+                                    };
                                     send_message(&mut uart, &cred_list_msg);
                                 }
                                 Err(e) => send_response_message(&mut uart, e.as_str(), true),
@@ -490,14 +562,30 @@ fn main() {
                         if get_vault_unlock_status() == false {
                             send_response_message(&mut uart, "Vault Locked!", true)
                         } else {
-                            if let Ok(del_msg) = rmp_serde::from_slice::<DeleteEntryMsg>(&buf[1..num_bytes_read]) {
+                            if let Ok(del_msg) =
+                                rmp_serde::from_slice::<DeleteEntryMsg>(&buf[1..num_bytes_read])
+                            {
                                 if del_msg.validate() {
-                                    match Credential::delete_credential_by_name(del_msg.domain_name, &sys.key, &mut sys.nvs_storage) {
-                                        Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
-                                        Err(e) => send_response_message(&mut uart, format!("Error deleting credential: {}", e).as_str(), true),
+                                    match Credential::delete_credential_by_name(
+                                        del_msg.domain_name.to_lowercase(),
+                                        &sys.key,
+                                        &mut sys.nvs_storage,
+                                    ) {
+                                        Ok(_) => {
+                                            send_response_message(&mut uart, SUCCESS_MSG, false)
+                                        }
+                                        Err(e) => send_response_message(
+                                            &mut uart,
+                                            format!("Error deleting credential: {}", e).as_str(),
+                                            true,
+                                        ),
                                     }
                                 } else {
-                                    send_response_message(&mut uart, "Invalid DeleteMsg message", true);
+                                    send_response_message(
+                                        &mut uart,
+                                        "Invalid DeleteMsg message",
+                                        true,
+                                    );
                                 }
                             } else {
                                 send_response_message(&mut uart, "Invalid DeleteMsg message", true);
@@ -532,7 +620,9 @@ fn main() {
                         match sys.unlock_vault(&buf, num_bytes_read, &mut unlocked_led) {
                             Ok(_) => {
                                 // Check if we have auto-lock enabled, if yes load and fire the lock timer
-                                if let Ok(auto_lock_setting) = sys.nvs_storage.nvs_read_setting(SETTING_AUTOLOCK) {
+                                if let Ok(auto_lock_setting) =
+                                    sys.nvs_storage.nvs_read_setting(SETTING_AUTOLOCK)
+                                {
                                     if auto_lock_setting == AUTOLOCK_ON {
                                         arm_auto_lock_timer(&mut autolock_timer);
                                     }
@@ -547,10 +637,12 @@ fn main() {
                         Err(e) => send_response_message(&mut uart, e.as_str(), true),
                     },
                     CMD_ATTEST => {
-                        // Generate pub/priv keypair during vault init or first boot (?) if first boot, we have to make sure we NEVER wipe it! Maybe store in eFuse
+                        // Generate pub/priv keypair during vault init or first boot
                         // Respond to a challenge and authenticate the HW to avoid evil maid attacks
                         match sys.attest(&buf[..num_bytes_read]) {
-                            Ok(attestation_response_msg) => send_message(&mut uart, &attestation_response_msg),
+                            Ok(attestation_response_msg) => {
+                                send_message(&mut uart, &attestation_response_msg)
+                            }
                             Err(e) => send_response_message(&mut uart, e.as_str(), true),
                         }
                     }
@@ -573,12 +665,20 @@ fn main() {
                                     Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
                                     Err(e) => send_response_message(&mut uart, e.as_str(), true),
                                 },
-                                Err(_e) => send_response_message(&mut uart, "Invalid SetSetting message", true)
+                                Err(_e) => send_response_message(
+                                    &mut uart,
+                                    "Invalid SetSetting message",
+                                    true,
+                                ),
                             }
                         }
                     }
                     _ => {
-                        send_response_message(&mut uart, format!("Unknown command: {:#02x}", command).as_str(), true);
+                        send_response_message(
+                            &mut uart,
+                            format!("Unknown command: {:#02x}", command).as_str(),
+                            true,
+                        );
                     }
                 }
             }

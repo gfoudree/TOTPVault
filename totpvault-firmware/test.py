@@ -14,11 +14,11 @@ from cryptography.exceptions import InvalidSignature
 import binascii
 import pyotp
 
-STATUS_MSG = 0x01
-SYSINFO_MSG = 0x20
-MSG_ATTESTATION_RESPONSE = 0x21
-MSG_LIST_CREDS = 0x22
-MSG_TOTP_CODE = 0x23
+STATUS_MSG = 0x21
+SYSINFO_MSG = 0x22
+MSG_ATTESTATION_RESPONSE = 0x23
+MSG_LIST_CREDS = 0x24
+MSG_TOTP_CODE = 0x25
 
 def checkEd25519Signature(public_key_bytes, signature_bytes, message_bytes):
     # Load the public key
@@ -108,7 +108,7 @@ class TestFirmware(unittest.TestCase):
         self.assertTrue(dev_info_bytes[0] == SYSINFO_MSG) # Make sure it's a MSG_SYSINFO response
         # Unpack response
         dev_info = msgpack.unpackb(dev_info_bytes[1:])
-        self.assertTrue(dev_info[0] == 128)
+        self.assertTrue(dev_info[0] == 64)
         self.assertTrue(dev_info[1] >= 0)
         self.assertTrue(dev_info[2] >= 0)
         self.assertTrue(dev_info[3] >= 0)
@@ -248,13 +248,19 @@ class TestFirmware(unittest.TestCase):
             totp = pyotp.TOTP(totp_secret, interval=30, digits=6).now()
             resp = self.s.recv()
 
-            # TODO: Maybe think of some better way to do this?
-            # Issue where if the timestamp here and timestamp on the device is off by one, the OTP can be different!
-            if resp[0] != MSG_TOTP_CODE:
-                o = pyotp.TOTP(totp_secret, interval=30, digits=6)
-                self.assertTrue(resp[0] == o.at(int(datetime.datetime.now().timestamp()) - 1) or resp[0] == o.at(int(datetime.datetime.now().timestamp()) +1))
-            else:
-                self.assertTrue(resp[0] == MSG_TOTP_CODE)
+            # Verify the response contains the correct TOTP code.
+            # Allow ±1 step window to tolerate clock drift between host and device.
+            self.assertTrue(resp[0] == MSG_TOTP_CODE, f"Expected MSG_TOTP_CODE ({MSG_TOTP_CODE:#02x}), got {resp[0]:#02x}")
+            totp_resp = msgpack.unpackb(resp[1:])
+            device_code = totp_resp[0]  # totp_code field
+            o = pyotp.TOTP(totp_secret, interval=30, digits=6)
+            now_ts = int(datetime.datetime.now().timestamp())
+            valid_codes = [
+                o.at(now_ts - 30),  # previous window
+                o.at(now_ts),       # current window
+                o.at(now_ts + 30),  # next window
+            ]
+            self.assertIn(device_code, valid_codes, f"Device TOTP code {device_code!r} not in valid window {valid_codes}")
 
             print(f"Domain: {domain}\nSecret key {totp_secret}\nCurrent timestamp " + str(int(datetime.datetime.now().timestamp())))
 

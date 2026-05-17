@@ -8,7 +8,7 @@ For a detailed look at the hardware components, see the [Hardware Overview](hard
 
 ![Device](images/pcb.png)
 # Websites Tested
-TOTPVault should work on almost all TOTP-based authentication sites. The list below just shows which ones have been validated to be working
+TOTPVault should work on almost all TOTP-based authentication sites, the list below shows which ones have been validated to be working
 
 | Website       | Supported |
 |---------------|-----------|

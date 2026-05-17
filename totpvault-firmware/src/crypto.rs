@@ -1,9 +1,9 @@
+use crate::{storage, NONCE_CHALLENGE_LEN, NVS_KEY_ED25519, SALT_LEN};
 use aes_gcm::aead::{Aead, KeyInit, OsRng}; // Traits for key generation and random number generation
 use aes_gcm::{Aes256Gcm, Error, Key, Nonce};
-use rand::RngCore;
 use base64::prelude::*;
 use ed25519_dalek::{Signature, Signer, SigningKey, SECRET_KEY_LENGTH};
-use crate::{storage, NONCE_CHALLENGE_LEN, NVS_KEY_ED25519, SALT_LEN};
+use rand::RngCore;
 
 pub const AES_IV_LEN: usize = 12;
 pub const AES_KEY_LEN: usize = 256 / 8;
@@ -56,13 +56,18 @@ pub fn decrypt_block(
 
 fn get_ed25519_private_key_nvs(nvs_storage: &mut storage::Storage) -> Result<SigningKey, String> {
     let private_key_bytes = nvs_storage.nvs_read_blob(NVS_KEY_ED25519)?;
-    let r: [u8; SECRET_KEY_LENGTH] = private_key_bytes.try_into().map_err(|_|format!("Unable to decode stored private key into ED25519 private key"))?;
+    let r: [u8; SECRET_KEY_LENGTH] = private_key_bytes
+        .try_into()
+        .map_err(|_| format!("Unable to decode stored private key into ED25519 private key"))?;
 
     // Key is zeroized on drop if the zeroize crate feature is enabled for ed25519-dalek
     Ok(SigningKey::from_bytes(&r))
 }
 
-pub fn sign_challenge(challenge: &[u8; NONCE_CHALLENGE_LEN], nvs_storage: &mut storage::Storage) -> Result<Signature, String> {
+pub fn sign_challenge(
+    challenge: &[u8; NONCE_CHALLENGE_LEN],
+    nvs_storage: &mut storage::Storage,
+) -> Result<Signature, String> {
     let pkey = get_ed25519_private_key_nvs(nvs_storage)?;
     let signature = pkey.sign(challenge);
 
@@ -72,7 +77,7 @@ pub fn sign_challenge(challenge: &[u8; NONCE_CHALLENGE_LEN], nvs_storage: &mut s
 pub fn get_ed25519_public_key_nvs(nvs_storage: &mut storage::Storage) -> Result<String, String> {
     let pkey = get_ed25519_private_key_nvs(nvs_storage)?;
     let pubkey = pkey.verifying_key();
-    
+
     // Convert it into a string
     let encoded = BASE64_STANDARD.encode(pubkey.as_bytes());
     #[cfg(debug_assertions)]

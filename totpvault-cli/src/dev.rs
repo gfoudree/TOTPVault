@@ -2,23 +2,23 @@ const VID: u16 = 0x1a86;
 const PID: u16 = 0x55d3;
 const ALLOWED_TIMESYNC_DELTA: i64 = 3;
 const DEFAULT_UART_DELAY: u64 = 1000;
-use std::{env};
-use std::collections::HashMap;
-use rmp_serde::{Deserializer};
-use serialport;
-use serde::{Deserialize};
-use std::io::Cursor;
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
-use chrono::Utc;
-use log::{debug, info};
-use serialport::{SerialPortType};
-use sha2::{Digest, Sha256};
-use crate::*;
-use totpvault_lib::*;
 use crate::comm::{check_status_msg, send_command, send_message};
-use ed25519_dalek::{VerifyingKey, Signature, Verifier};
+use crate::*;
+use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
+use chrono::Utc;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use log::{debug, info};
 use rand_latest;
+use rmp_serde::Deserializer;
+use serde::Deserialize;
+use serialport;
+use serialport::SerialPortType;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::env;
+use std::io::Cursor;
+use totpvault_lib::*;
 
 pub struct TotpvaultDev {}
 
@@ -31,9 +31,12 @@ impl TotpvaultDev {
         }
         let time_delta = ((current_time - device_timestamp) as i64).abs();
 
-        info!("System time (UTC): {}     Device time (UTC): {}     Delta: {}", current_time, device_timestamp, time_delta);
+        info!(
+            "System time (UTC): {}     Device time (UTC): {}     Delta: {}",
+            current_time, device_timestamp, time_delta
+        );
         if time_delta > ALLOWED_TIMESYNC_DELTA {
-            return false
+            return false;
         }
         true
     }
@@ -49,7 +52,9 @@ impl TotpvaultDev {
         if b64_publickey.len() == 0 {
             return Err("Invalid public key length".to_string());
         }
-        let decoded = BASE64_STANDARD.decode(b64_publickey).map_err(|e| e.to_string())?;
+        let decoded = BASE64_STANDARD
+            .decode(b64_publickey)
+            .map_err(|e| e.to_string())?;
         let digest = Sha256::digest(decoded);
 
         let hash_str = hex::encode(digest);
@@ -58,7 +63,7 @@ impl TotpvaultDev {
             formatted += format!("{}{}:", chunk[0], chunk[1]).as_str();
         }
         if formatted.chars().last().unwrap() == ':' {
-            formatted = formatted[..formatted.len()-1].to_string();
+            formatted = formatted[..formatted.len() - 1].to_string();
         }
         formatted = formatted.to_uppercase();
         Ok(formatted)
@@ -74,16 +79,25 @@ impl TotpvaultDev {
                                 // Handle OS-specific details
                                 match env::consts::OS {
                                     "windows" => {
-                                        debug!("Using USB device {:02x}:{:02x} @ {}", info.vid, info.pid, port.port_name);
+                                        debug!(
+                                            "Using USB device {:02x}:{:02x} @ {}",
+                                            info.vid, info.pid, port.port_name
+                                        );
                                         return Ok(port.port_name);
                                     }
                                     "linux" => {
-                                        debug!("Using USB device {:02x}:{:02x} @ {}", info.vid, info.pid, port.port_name);
+                                        debug!(
+                                            "Using USB device {:02x}:{:02x} @ {}",
+                                            info.vid, info.pid, port.port_name
+                                        );
                                         return Ok(port.port_name);
                                     }
                                     "macos" => {
                                         if port.port_name.contains("tty") {
-                                            debug!("Using USB device {:02x}:{:02x} @ {}", info.vid, info.pid, port.port_name);
+                                            debug!(
+                                                "Using USB device {:02x}:{:02x} @ {}",
+                                                info.vid, info.pid, port.port_name
+                                            );
                                             return Ok(port.port_name);
                                         } else {
                                             debug!("Skipping non-tty port: {}", port.port_name);
@@ -91,8 +105,7 @@ impl TotpvaultDev {
                                     }
                                     _ => {}
                                 }
-                            }
-                            else {
+                            } else {
                                 debug!("Skipping USB device {:02x} {:02x}", info.vid, info.pid);
                             }
                         }
@@ -100,47 +113,83 @@ impl TotpvaultDev {
                     }
                 }
             }
-            Err(e) => return Err(e.to_string())
+            Err(e) => return Err(e.to_string()),
         }
         Err("No TOTP devices found.".to_string())
     }
 
-    pub fn get_device_status(dev_path: &str, timeout: Option<u64>) -> Result<SystemInfoMsg, String> {
+    pub fn get_device_status(
+        dev_path: &str,
+        timeout: Option<u64>,
+    ) -> Result<SystemInfoMsg, String> {
         let resp = send_command(dev_path, CMD_DEV_INFO, timeout.unwrap_or(2000))?;
-        // Check that we got a valid SYSINFO message
-        if resp[0] != MSG_SYSINFO {
-            // Dump error out
-            if resp[0] == MSG_STATUS_MSG {
-                let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| format!("Failed to deserialize StatusMsg: {}", e))?;
-                return Err(format!("Error getting device status: {}", msg.message));
+        if let Some(resp_type) = resp.first() {
+            // Check that we got a valid SYSINFO message
+            if *resp_type != MSG_SYSINFO {
+                // Dump error out
+                if *resp_type == MSG_STATUS_MSG && resp.len() >= 2 {
+                    let msg: StatusMsg =
+                        Deserialize::deserialize(&mut Deserializer::new(&resp[1..]))
+                            .map_err(|e| format!("Failed to deserialize StatusMsg: {}", e))?;
+                    return Err(format!("Error getting device status: {}", msg.message));
+                } else {
+                    return Err(format!(
+                        "Invalid response message type from device! Expected {:#02x}, got {:#02x}",
+                        MSG_SYSINFO, *resp_type
+                    ));
+                }
             }
-            else {
-                return Err(format!("Invalid response message type from device! Expected {:#02x}, got {:#02x}", MSG_SYSINFO, resp[0]));
-            }
+        } else {
+            return Err("Invalid response message from device!".to_string());
         }
+
+        if resp.len() < 2 {
+            return Err("Invalid resposne message from device!".to_string());
+        }
+
         let mut cursor_buf = Cursor::new(resp[1..].to_vec());
-        let msg: SystemInfoMsg = Deserialize::deserialize(&mut Deserializer::new(& mut cursor_buf)).map_err(|e| format!("Failed to deserialize SystemInfoMsg: {}", e))?;
+        let msg: SystemInfoMsg = Deserialize::deserialize(&mut Deserializer::new(&mut cursor_buf))
+            .map_err(|e| format!("Failed to deserialize SystemInfoMsg: {}", e))?;
 
         Ok(msg)
     }
 
-    pub fn get_all_settings(dev_path: &str, timeout: Option<u64>) -> Result<HashMap<String, String>, String> {
+    pub fn get_all_settings(
+        dev_path: &str,
+        timeout: Option<u64>,
+    ) -> Result<HashMap<String, String>, String> {
         let resp = send_command(dev_path, CMD_GET_SETTINGS, timeout.unwrap_or(2000))?;
-        if resp[0] == MSG_GET_SETTINGS_RESPONSE {
-            let settings_list_msg: GetSettingsResponseMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| format!("Failed to deserialize GetSettingsResponseMsg: {}", e))?;
-            Ok(settings_list_msg.settings)
+        if let Some(resp_type) = resp.first() {
+            if *resp_type == MSG_GET_SETTINGS_RESPONSE && resp.len() >= 2 {
+                let settings_list_msg: GetSettingsResponseMsg =
+                    Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| {
+                        format!("Failed to deserialize GetSettingsResponseMsg: {}", e)
+                    })?;
+                Ok(settings_list_msg.settings)
+            } else {
+                if *resp_type == MSG_STATUS_MSG && resp.len() >= 2 {
+                    let msg: StatusMsg =
+                        Deserialize::deserialize(&mut Deserializer::new(&resp[1..]))
+                            .map_err(|e| format!("Failed to deserialize StatusMsg: {}", e))?;
+                    Err(format!("Error getting device settings: {}", msg.message))
+                } else {
+                    Err(format!(
+                        "Invalid response message type from device! Expected {:#02x}, got {:#02x}",
+                        MSG_GET_SETTINGS_RESPONSE, *resp_type
+                    ))
+                }
+            }
         } else {
-            if resp[0] == MSG_STATUS_MSG {
-                let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| format!("Failed to deserialize StatusMsg: {}", e))?;
-                Err(format!("Error getting device settings: {}", msg.message))
-            }
-            else {
-                Err(format!("Invalid response message type from device! Expected {:#02x}, got {:#02x}", MSG_GET_SETTINGS_RESPONSE, resp[0]))
-            }
+            Err("Invalid response message from device!".to_string())
         }
     }
 
-    pub fn set_setting(dev_path: &str, timeout: Option<u64>, key: &str, value: &str) -> Result<(), String> {
+    pub fn set_setting(
+        dev_path: &str,
+        timeout: Option<u64>,
+        key: &str,
+        value: &str,
+    ) -> Result<(), String> {
         let set_msg = SetSettingMsg {
             key: key.to_string(),
             value: value.to_string(),
@@ -150,113 +199,235 @@ impl TotpvaultDev {
             return Err("Invalid setting key or value. Check 'view-config' for allowed settings and values.".to_string());
         }
 
-        let resp = send_message(dev_path, set_msg, CMD_SET_SETTINGS, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
+        let resp = send_message(
+            dev_path,
+            set_msg,
+            CMD_SET_SETTINGS,
+            timeout.unwrap_or(DEFAULT_UART_DELAY),
+        )?;
         check_status_msg(resp)
     }
 
-    pub fn list_stored_credentials(dev_path: &str, timeout: Option<u64>) -> Result<Vec<CredentialInfo>, String> {
+    pub fn list_stored_credentials(
+        dev_path: &str,
+        timeout: Option<u64>,
+    ) -> Result<Vec<CredentialInfo>, String> {
         let resp = send_command(dev_path, CMD_LIST, timeout.unwrap_or(2000))?;
-        if resp[0] == MSG_LIST_CREDS {
-            let cred_list_msg: CredentialListMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| format!("Failed to deserialize CredentialListMsg: {}", e))?;
-            Ok(cred_list_msg.credentials)
+
+        if let Some(resp_type) = resp.first() {
+            if *resp_type == MSG_LIST_CREDS && resp.len() >= 2 {
+                let cred_list_msg: CredentialListMsg =
+                    Deserialize::deserialize(&mut Deserializer::new(&resp[1..]))
+                        .map_err(|e| format!("Failed to deserialize CredentialListMsg: {}", e))?;
+                Ok(cred_list_msg.credentials)
+            } else {
+                if *resp_type == MSG_STATUS_MSG && resp.len() >= 2 {
+                    let msg: StatusMsg =
+                        Deserialize::deserialize(&mut Deserializer::new(&resp[1..]))
+                            .map_err(|e| e.to_string())?;
+                    Err(format!("Error getting device status: {}", msg.message))
+                } else {
+                    Err("Invalid response message from device!".to_string())
+                }
+            }
         } else {
-            if resp[0] == MSG_STATUS_MSG {
-                let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
-                Err(format!("Error getting device status: {}", msg.message))
-            }
-            else {
-                Err("Invalid response message from device!".to_string())
-            }
+            Err("Invalid response message from device!".to_string())
         }
     }
 
-    pub fn get_totp_code(dev_path: &str, timeout: Option<u64>, domain_name: &str) -> Result<TOTPCodeMsg, String> {
-        let resp = send_message(dev_path, DisplayCodeMsg{domain_name: domain_name.to_string()}, CMD_DISPLAY_CODE, timeout.unwrap_or(800))?;
-        if resp[0] == MSG_TOTP_CODE {
-            let totp_code_msg: TOTPCodeMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
-            Ok(totp_code_msg)
+    pub fn get_totp_code(
+        dev_path: &str,
+        timeout: Option<u64>,
+        domain_name: &str,
+    ) -> Result<TOTPCodeMsg, String> {
+        let resp = send_message(
+            dev_path,
+            DisplayCodeMsg {
+                domain_name: domain_name.to_string(),
+            },
+            CMD_DISPLAY_CODE,
+            timeout.unwrap_or(800),
+        )?;
+        if let Some(resp_type) = resp.first() {
+            if *resp_type == MSG_TOTP_CODE && resp.len() >= 2 {
+                let totp_code_msg: TOTPCodeMsg =
+                    Deserialize::deserialize(&mut Deserializer::new(&resp[1..]))
+                        .map_err(|e| e.to_string())?;
+                Ok(totp_code_msg)
+            } else {
+                if *resp_type == MSG_STATUS_MSG && resp.len() >= 2 {
+                    let msg: StatusMsg =
+                        Deserialize::deserialize(&mut Deserializer::new(&resp[1..]))
+                            .map_err(|e| e.to_string())?;
+                    Err(msg.message)
+                } else {
+                    Err("Invalid response message from device!".to_string())
+                }
+            }
         } else {
-            if resp[0] == MSG_STATUS_MSG {
-                let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
-                Err(msg.message)
-            }
-            else {
-                Err("Invalid response message from device!".to_string())
-            }
+            Err("Invalid response message from device!".to_string())
         }
     }
 
-    pub fn add_credential(dev_path: &str, timeout: Option<u64>, domain_name: &str, totp_secret: &str) -> Result<(), String> {
-        let resp = send_message(dev_path, CreateEntryMsg{domain_name: domain_name.to_string(), totp_secret: totp_secret.to_string()}, CMD_CREATE, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
+    pub fn add_credential(
+        dev_path: &str,
+        timeout: Option<u64>,
+        domain_name: &str,
+        totp_secret: &str,
+    ) -> Result<(), String> {
+        let resp = send_message(
+            dev_path,
+            CreateEntryMsg {
+                domain_name: domain_name.to_string(),
+                totp_secret: totp_secret.to_string(),
+            },
+            CMD_CREATE,
+            timeout.unwrap_or(DEFAULT_UART_DELAY),
+        )?;
         check_status_msg(resp)
     }
-    pub fn delete_credential(dev_path: &str, timeout: Option<u64>, domain_name: &str) -> Result<(), String> {
-        let resp =  send_message(dev_path, DeleteEntryMsg{domain_name: domain_name.to_string()}, CMD_DELETE, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
+    pub fn delete_credential(
+        dev_path: &str,
+        timeout: Option<u64>,
+        domain_name: &str,
+    ) -> Result<(), String> {
+        let resp = send_message(
+            dev_path,
+            DeleteEntryMsg {
+                domain_name: domain_name.to_string(),
+            },
+            CMD_DELETE,
+            timeout.unwrap_or(DEFAULT_UART_DELAY),
+        )?;
         check_status_msg(resp)
     }
 
-    pub fn unlock_vault(dev_path: &str, timeout: Option<u64>, password: &str) -> Result<(), String> {
-        let resp = send_message(dev_path, UnlockMsg{password: password.to_string()}, CMD_UNLOCK_VAULT, timeout.unwrap_or(2000))?;
+    pub fn unlock_vault(
+        dev_path: &str,
+        timeout: Option<u64>,
+        password: &str,
+    ) -> Result<(), String> {
+        let resp = send_message(
+            dev_path,
+            UnlockMsg {
+                password: password.to_string(),
+            },
+            CMD_UNLOCK_VAULT,
+            timeout.unwrap_or(2000),
+        )?;
         check_status_msg(resp)
     }
 
     pub fn init_vault(dev_path: &str, timeout: Option<u64>, password: &str) -> Result<(), String> {
-        let msg = InitVaultMsg{password: password.to_string()};
+        let msg = InitVaultMsg {
+            password: password.to_string(),
+        };
         if !msg.validate() {
-            Err(format!("Password does not meet the criteria of {}-{} characters", MIN_PW_LEN, MAX_PW_LEN))
-        }
-        else {
+            Err(format!(
+                "Password does not meet the criteria of {}-{} characters",
+                MIN_PW_LEN, MAX_PW_LEN
+            ))
+        } else {
             let res = send_message(dev_path, msg, CMD_INIT_VAULT, timeout.unwrap_or(2000))?;
             check_status_msg(res)
         }
-
     }
     pub fn sync_time(dev_path: &str, timeout: Option<u64>) -> Result<String, String> {
         let time = Utc::now();
-        let res = send_message(dev_path, SetTimeMsg{unix_timestamp: time.timestamp() as u64}, CMD_SET_TIME, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
+        let res = send_message(
+            dev_path,
+            SetTimeMsg {
+                unix_timestamp: time.timestamp() as u64,
+            },
+            CMD_SET_TIME,
+            timeout.unwrap_or(DEFAULT_UART_DELAY),
+        )?;
         match check_status_msg(res) {
             Ok(_) => Ok(time.to_string()),
-            Err(e) => Err(e.to_string())
+            Err(e) => Err(e.to_string()),
         }
     }
 
     pub fn lock_vault(dev_path: &str, timeout: Option<u64>) -> Result<(), String> {
-        let res = send_command(dev_path, CMD_LOCK_VAULT, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
+        let res = send_command(
+            dev_path,
+            CMD_LOCK_VAULT,
+            timeout.unwrap_or(DEFAULT_UART_DELAY),
+        )?;
         check_status_msg(res)
     }
 
-    pub fn attest_device(dev_path: &str, timeout: Option<u64>, pub_key_b64: &str) -> Result<(), String> {
+    pub fn attest_device(
+        dev_path: &str,
+        timeout: Option<u64>,
+        pub_key_b64: &str,
+    ) -> Result<(), String> {
         // Decode public key
-        let pub_key = BASE64_STANDARD.decode(pub_key_b64).map_err(|e| format!("Error decoding public key: {}", e))?;
-        let pub_key_bytes: [u8; 32] = pub_key.try_into().map_err(|_| "Public key not proper length!")?;
+        let pub_key = BASE64_STANDARD
+            .decode(pub_key_b64)
+            .map_err(|e| format!("Error decoding public key: {}", e))?;
+        let pub_key_bytes: [u8; 32] = pub_key
+            .try_into()
+            .map_err(|_| "Public key not proper length!")?;
 
         // Generate random challenge
         let random_bytes: [u8; 64] = rand_latest::random();
         let random_bytes_encoded = BASE64_STANDARD.encode(&random_bytes);
 
-        let resp = send_message(dev_path, AuthenticateChallengeMsg{nonce_challenge: random_bytes_encoded}, CMD_ATTEST, timeout.unwrap_or(5000))?;
-        if resp[0] == MSG_ATTESTATION_RESPONSE {
-            let attestation_resp_msg: AttestationResponseMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
-            // Check the attestation message
-            let attestation_reply_bytes = BASE64_STANDARD.decode(attestation_resp_msg.message).map_err(|e| e.to_string())?;
+        let resp = send_message(
+            dev_path,
+            AuthenticateChallengeMsg {
+                nonce_challenge: random_bytes_encoded,
+            },
+            CMD_ATTEST,
+            timeout.unwrap_or(5000),
+        )?;
+        if let Some(resp_type) = resp.first() {
+            if *resp_type == MSG_ATTESTATION_RESPONSE && resp.len() >= 2 {
+                let attestation_resp_msg: AttestationResponseMsg =
+                    Deserialize::deserialize(&mut Deserializer::new(&resp[1..]))
+                        .map_err(|e| e.to_string())?;
+                // Check the attestation message
+                let attestation_reply_bytes = BASE64_STANDARD
+                    .decode(attestation_resp_msg.message)
+                    .map_err(|e| e.to_string())?;
 
-            debug!("Attestation:\nChallenge: {}\nResponse: {}\nDevice ED25519 Pubkey: {}", hex::encode(random_bytes.clone()), hex::encode(attestation_reply_bytes.clone()), hex::encode(pub_key_bytes.clone()));
-            Self::ed25519_verify_signature(&pub_key_bytes, random_bytes.as_slice(), &attestation_reply_bytes)
+                debug!(
+                    "Attestation:\nChallenge: {}\nResponse: {}\nDevice ED25519 Pubkey: {}",
+                    hex::encode(random_bytes.clone()),
+                    hex::encode(attestation_reply_bytes.clone()),
+                    hex::encode(pub_key_bytes.clone())
+                );
+                Self::ed25519_verify_signature(
+                    &pub_key_bytes,
+                    random_bytes.as_slice(),
+                    &attestation_reply_bytes,
+                )
+            } else {
+                if *resp_type == MSG_STATUS_MSG && resp.len() >= 2 {
+                    let msg: StatusMsg =
+                        Deserialize::deserialize(&mut Deserializer::new(&resp[1..]))
+                            .map_err(|e| e.to_string())?;
+                    Err(format!("Error getting device status: {}", msg.message))
+                } else {
+                    Err("Invalid response message from device!".to_string())
+                }
+            }
         } else {
-            if resp[0] == MSG_STATUS_MSG {
-                let msg: StatusMsg = Deserialize::deserialize(&mut Deserializer::new(&resp[1..])).map_err(|e| e.to_string())?;
-                Err(format!("Error getting device status: {}", msg.message))
-            }
-            else {
-                Err("Invalid response message from device!".to_string())
-            }
+            Err("Invalid response message from device!".to_string())
         }
     }
 
-    pub fn ed25519_verify_signature(public_key_bytes: &[u8; 32], message: &[u8], signature_bytes: &[u8]) -> Result<(), String> {
+    pub fn ed25519_verify_signature(
+        public_key_bytes: &[u8; 32],
+        message: &[u8],
+        signature_bytes: &[u8],
+    ) -> Result<(), String> {
         let pub_key = VerifyingKey::from_bytes(public_key_bytes).map_err(|e| e.to_string())?;
         let signature = Signature::try_from(signature_bytes).map_err(|e| e.to_string())?;
 
-        pub_key.verify(message, &signature).map_err(|e| e.to_string())
+        pub_key
+            .verify(message, &signature)
+            .map_err(|e| e.to_string())
     }
 }
