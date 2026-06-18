@@ -108,10 +108,12 @@ pub struct CredentialInfo {
     pub domain_name: String,
     pub slot_id: u8,
 }
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CredentialListMsg {
     pub credentials: Vec<CredentialInfo>,
 }
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TOTPCodeMsg {
     pub totp_code: String,
@@ -127,12 +129,15 @@ pub struct SystemInfoMsg {
     pub version_str: String,
     pub vault_unlocked: bool,
     pub public_key: String, // Base64 encoded
+    pub hw_mac: String,
 }
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusMsg {
     pub error: bool,
     pub message: String,
 }
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AttestationResponseMsg {
     pub message: String, // Base64 encoded
@@ -162,6 +167,7 @@ impl Message for TOTPCodeMsg {
         MSG_TOTP_CODE
     }
 }
+
 impl Message for AttestationResponseMsg {
     fn validate(&self) -> bool {
         true
@@ -170,6 +176,7 @@ impl Message for AttestationResponseMsg {
         MSG_ATTESTATION_RESPONSE
     }
 }
+
 impl Message for SystemInfoMsg {
     fn validate(&self) -> bool {
         true
@@ -187,6 +194,7 @@ impl Message for CredentialListMsg {
         MSG_LIST_CREDS
     }
 }
+
 impl Message for StatusMsg {
     fn validate(&self) -> bool {
         true

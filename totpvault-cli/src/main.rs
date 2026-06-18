@@ -4,7 +4,7 @@ use clap::{Args, Parser, Subcommand};
 use colored::Colorize;
 use env_logger::Builder;
 use log::{debug, warn};
-use totpvault_lib::SystemInfoMsg;
+use totpvault_lib::{MIN_PW_LEN, SystemInfoMsg};
 use zeroize::Zeroize;
 
 mod comm;
@@ -148,8 +148,17 @@ fn dump_device_status(device_status: &SystemInfoMsg) {
         }
     };
 
-    println!("Device Status:\n\tVault: {}\n\tTotal Slots: {}\n\tUsed Slots: {}\n\tFree Slots: {}\n\tCurrent Timestamp: {}\n\tVersion: {}\n\tED25519 Public Key: {}", locked_msg, device_status.total_slots, device_status.used_slots,
-    device_status.free_slots, timestamp_msg, device_status.version_str, device_status.public_key);
+    println!(
+        "Device Status:\n\tVault: {}\n\tTotal Slots: {}\n\tUsed Slots: {}\n\tFree Slots: {}\n\tCurrent Timestamp: {}\n\tVersion: {}\n\tED25519 Public Key: {}\n\tSerial Number: {}",
+        locked_msg,
+        device_status.total_slots,
+        device_status.used_slots,
+        device_status.free_slots,
+        timestamp_msg,
+        device_status.version_str,
+        device_status.public_key,
+        device_status.hw_mac
+    );
 
     if let Ok(hash) = TotpvaultDev::public_key_to_hash(&device_status.public_key) {
         println!("\tKey Fingerprint (SHA256): {}", hash);
@@ -230,7 +239,9 @@ fn main() {
                 Ok(totp_msg) => {
                     // Check if the device is in sync, warn the user if not
                     if !TotpvaultDev::timesync_check(totp_msg.system_timestamp) {
-                        warn!("TOTPVault device time is not in sync! Codes will not be correct, sync with 'sync-time' command");
+                        warn!(
+                            "TOTPVault device time is not in sync! Codes will not be correct, sync with 'sync-time' command"
+                        );
                     }
                     let time_remaining = TotpvaultDev::get_remaining_totp_ticks();
                     if time_remaining < 5.0 {
@@ -255,7 +266,10 @@ fn main() {
                 "{}",
                 "**************** WARNING ****************".bold().red()
             );
-            println!("Initializing the vault will {}!\nPlease make sure you will not be locked out of your accounts!\n\nDo you want to continue? (yes/no):", "WIPE EXISTING CREDENTIALS".bold().red());
+            println!(
+                "Initializing the vault will {}!\nPlease make sure you will not be locked out of your accounts!\n\nDo you want to continue? (yes/no):",
+                "WIPE EXISTING CREDENTIALS".bold().red()
+            );
             let mut response = String::new();
             std::io::stdin().read_line(&mut response).unwrap();
             if response.to_lowercase().trim() == "yes" {
@@ -334,6 +348,8 @@ fn main() {
 
             if password.len() == 0 {
                 eprintln!("Did not enter a password");
+            } else if password.len() < MIN_PW_LEN {
+                eprintln!("Password too short, minimum {} characters", MIN_PW_LEN);
             } else {
                 match TotpvaultDev::unlock_vault(device, cli.timeout, &password) {
                     Ok(_) => println!("Successfully unlocked vault"),

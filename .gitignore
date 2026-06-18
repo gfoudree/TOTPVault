@@ -1,4 +1,7 @@
 site
+release_management.py
+products.db
+*.log
 /.vscode
 .DS_Store
 .idea

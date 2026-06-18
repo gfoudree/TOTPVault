@@ -16,6 +16,7 @@ PARTITION_TABLE_ENCRYPTED     := "target/riscv32imc-esp-espidf/release/partition
 
 SECUREBOOT_RSA_KEYFILE        := "secureboot_key.pem"
 FLASH_ENCRYPTION_AES_KEYFILE  := "flash_encryption_key.bin"
+NVS_ENCRYPTION_KEYFILE        := "hmac_key.bin"
 
 FLASH_IMAGE                   := "flash.bin"
 EFUSE_FILE                    := "qemu_efuse.bin"
@@ -40,6 +41,10 @@ check-env:
 check-firmware:
     @test -f {{RUST_FIRMWARE}} || (echo "Error: {{RUST_FIRMWARE}} not found. Run 'cargo build --release' first."; exit 1)
 
+[private]
+check-flash-image:
+    @test -f {{FLASH_IMAGE}} || (echo "Error: {{FLASH_IMAGE}} not found, run 'just sign' first."; exit 1)
+
 # Generate encryption and signing keys
 gen-keys: check-env
     dd if=/dev/random of=hmac_key.bin bs=1 count=32
@@ -49,8 +54,8 @@ gen-keys: check-env
 
 
 setup-efuses: check-env
-    @# Burn HMAC key for NVS encryption
-    just efuse-cmd burn_key BLOCK_KEY3 hmac_key.bin HMAC_UP
+    @# Burn HMAC key for NVS encryption. Encryption done with HMAC peripheral which derives an AES-XTS key
+    just efuse-cmd burn_key BLOCK_KEY3 {{NVS_ENCRYPTION_KEYFILE}} HMAC_UP
 
     @# Burn AES key for flash encryption
     just efuse-cmd burn_key BLOCK_KEY4 {{FLASH_ENCRYPTION_AES_KEYFILE}} XTS_AES_128_KEY
@@ -97,7 +102,6 @@ sign: check-env check-firmware
     @# Merge the components
     esptool.py --chip esp32c3 merge_bin --fill-flash-size 4MB -o {{FLASH_IMAGE}} --flash_mode dio --flash_freq 80m --flash_size 4MB 0x0 {{BOOTLOADER_ENCRYPTED}} 0x10000 {{PARTITION_TABLE_ENCRYPTED}} 0x30000 {{ELF_FIRMWARE_SIGNED_ENCRYPTED}}
 
-
 verify: check-env
     @echo "Checking firmware..."
     espsecure.py signature_info_v2 {{ELF_FIRMWARE_SIGNED}}
@@ -141,7 +145,7 @@ qemu-burn-efuses: check-env
     just efuse-cmd burn_efuse WAFER_VERSION_MINOR_LO 3
     just setup-efuses
 
-qemu-test:
+qemu-test: check-env check-flash-image
     qemu-system-riscv32 -nographic \
         -M esp32c3 \
         -drive file={{FLASH_IMAGE}},if=mtd,format=raw \

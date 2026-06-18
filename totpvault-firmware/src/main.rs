@@ -1,6 +1,6 @@
 use argon2::{Algorithm, Argon2, Params, Version};
-use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use chrono::Utc;
 use core::cell::Cell;
 use credential::{Credential, MAX_CREDENTIALS};
@@ -14,6 +14,7 @@ use esp_idf_svc::{
     hal::{gpio::AnyIOPin, prelude::Peripherals, reset::restart, uart, units::Hertz},
     sys,
 };
+use esp_idf_sys::{ESP_OK, esp_efuse_mac_get_default};
 use log::{error, info};
 use rmp_serde::Serializer;
 use serde::Serialize;
@@ -24,14 +25,16 @@ use totpvault_lib;
 use totpvault_lib::*;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use crate::crypto::AES_KEY_LEN;
+
 mod credential;
 mod crypto;
 mod storage;
 
 const SALT_LEN: usize = 32; // 256 bits
 
-// Argon2id parameters for ESP32-C3: m=16384 (16 KiB memory cost), t=3 iterations, p=1 thread
-const ARGON2_M_COST: u32 = 16384; // memory in KiB
+// Argon2id parameters for ESP32-C3: m=16 (16 KiB memory cost), t=3 iterations, p=1 thread
+const ARGON2_M_COST: u32 = 16; // memory in KiB
 const ARGON2_T_COST: u32 = 3; // iterations
 const ARGON2_P_COST: u32 = 1; // parallelism (single-threaded)
 
@@ -163,7 +166,7 @@ impl System {
         self.nvs_storage.nvs_write_blob("salt", &salt)?;
 
         // Derive the encryption key
-        let enc_key = Self::derive_encryption_key(init_msg.password.as_str(), &salt);
+        let enc_key = Self::derive_encryption_key(init_msg.password.as_str(), &salt)?;
 
         // Wipe all entries
         for i in 0..MAX_CREDENTIALS {
@@ -204,16 +207,19 @@ impl System {
         }
     }
 
-    fn derive_encryption_key(password: &str, salt: &[u8; SALT_LEN]) -> [u8; 32] {
+    pub fn derive_encryption_key(
+        password: &str,
+        salt: &[u8; SALT_LEN],
+    ) -> Result<[u8; AES_KEY_LEN], String> {
         let params = Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, Some(32))
-            .expect("Invalid Argon2 parameters");
+            .map_err(|e| format!("Invalid Argon2 parameters: {e}"))?;
         let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
-        let mut key = [0u8; 32];
+        let mut key = [0u8; AES_KEY_LEN];
         argon2
             .hash_password_into(password.as_bytes(), salt, &mut key)
-            .expect("Argon2id key derivation failed");
-        key
+            .map_err(|e| format!("Argon2id key derivation failed: {e}"))?;
+        Ok(key)
     }
 
     fn display_code(&mut self, cmd_buf: &[u8; 512], read_bytes: usize) -> Result<String, String> {
@@ -290,7 +296,7 @@ impl System {
             }
         };
 
-        let key = Self::derive_encryption_key(unlock_msg.password.as_str(), &salt);
+        let key = Self::derive_encryption_key(unlock_msg.password.as_str(), &salt)?;
 
         // Test if the vault is unlocked
         let decrypted_magic = self
@@ -414,6 +420,17 @@ impl System {
         let pubkey = get_ed25519_public_key_nvs(&mut self.nvs_storage)
             .map_err(|e| format!("Unable to get device public key. {}", e))?;
 
+        // Get the factory programmed MAC from eFUSE
+        let mut mac = [0u8; 8];
+        let mac_ptr = mac.as_mut_ptr();
+        unsafe {
+            let res = esp_efuse_mac_get_default(mac_ptr);
+
+            if res != ESP_OK {
+                mac.fill(0);
+            }
+        }
+
         let mut info_msg = SystemInfoMsg {
             total_slots: MAX_CREDENTIALS,
             used_slots: 0,
@@ -422,6 +439,10 @@ impl System {
             version_str: format!("TOTPVault Version {}", env!("CARGO_PKG_VERSION")),
             vault_unlocked: get_vault_unlock_status(),
             public_key: pubkey,
+            hw_mac: format!(
+                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+            ),
         };
 
         if get_vault_unlock_status() {
@@ -483,7 +504,9 @@ fn main() {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     #[cfg(debug_assertions)]
-    std::env::set_var("RUST_BACKTRACE", "1");
+    unsafe {
+        std::env::set_var("RUST_BACKTRACE", "1");
+    }
 
     // Enable HW RNG. We are not using RF, so we need to use the ADC to feed the RNG. https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/random.html#_CPPv424bootloader_random_enablev
     unsafe {
@@ -682,7 +705,12 @@ fn main() {
                                 }
                                 send_response_message(&mut uart, SUCCESS_MSG, false)
                             }
-                            Err(_) => send_response_message(&mut uart, "Incorrect Password", true),
+                            Err(e) => {
+                                #[cfg(debug_assertions)]
+                                send_response_message(&mut uart, e.as_str(), true); // Send verbose reason if it's a debug build, otherwise strip this out
+                                #[cfg(not(debug_assertions))]
+                                send_response_message(&mut uart, "Incorrect password", true);
+                            }
                         };
                     }
                     CMD_INIT_VAULT => match sys.init_vault(&buf, num_bytes_read) {
