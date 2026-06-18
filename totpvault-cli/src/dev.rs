@@ -1,11 +1,13 @@
 const VID: u16 = 0x1a86;
 const PID: u16 = 0x55d3;
 const ALLOWED_TIMESYNC_DELTA: i64 = 3;
-const DEFAULT_UART_DELAY: u64 = 1000;
+pub const DEFAULT_UART_DELAY: u64 = 4000;
+pub const EXTENDED_UART_DELAY: u64 = DEFAULT_UART_DELAY * 3; // Give a longer timeout for more intensive operations
+
 use crate::comm::{check_status_msg, send_command, send_message};
 use crate::*;
-use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use chrono::Utc;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use log::{debug, info};
@@ -122,7 +124,11 @@ impl TotpvaultDev {
         dev_path: &str,
         timeout: Option<u64>,
     ) -> Result<SystemInfoMsg, String> {
-        let resp = send_command(dev_path, CMD_DEV_INFO, timeout.unwrap_or(2000))?;
+        let resp = send_command(
+            dev_path,
+            CMD_DEV_INFO,
+            timeout.unwrap_or(EXTENDED_UART_DELAY),
+        )?;
         if let Some(resp_type) = resp.first() {
             // Check that we got a valid SYSINFO message
             if *resp_type != MSG_SYSINFO {
@@ -144,7 +150,7 @@ impl TotpvaultDev {
         }
 
         if resp.len() < 2 {
-            return Err("Invalid resposne message from device!".to_string());
+            return Err("Invalid response message from device!".to_string());
         }
 
         let mut cursor_buf = Cursor::new(resp[1..].to_vec());
@@ -158,7 +164,11 @@ impl TotpvaultDev {
         dev_path: &str,
         timeout: Option<u64>,
     ) -> Result<HashMap<String, String>, String> {
-        let resp = send_command(dev_path, CMD_GET_SETTINGS, timeout.unwrap_or(2000))?;
+        let resp = send_command(
+            dev_path,
+            CMD_GET_SETTINGS,
+            timeout.unwrap_or(EXTENDED_UART_DELAY),
+        )?;
         if let Some(resp_type) = resp.first() {
             if *resp_type == MSG_GET_SETTINGS_RESPONSE && resp.len() >= 2 {
                 let settings_list_msg: GetSettingsResponseMsg =
@@ -212,7 +222,7 @@ impl TotpvaultDev {
         dev_path: &str,
         timeout: Option<u64>,
     ) -> Result<Vec<CredentialInfo>, String> {
-        let resp = send_command(dev_path, CMD_LIST, timeout.unwrap_or(2000))?;
+        let resp = send_command(dev_path, CMD_LIST, timeout.unwrap_or(EXTENDED_UART_DELAY))?;
 
         if let Some(resp_type) = resp.first() {
             if *resp_type == MSG_LIST_CREDS && resp.len() >= 2 {
@@ -313,7 +323,7 @@ impl TotpvaultDev {
                 password: password.to_string(),
             },
             CMD_UNLOCK_VAULT,
-            timeout.unwrap_or(2000),
+            timeout.unwrap_or(EXTENDED_UART_DELAY),
         )?;
         check_status_msg(resp)
     }
@@ -328,7 +338,12 @@ impl TotpvaultDev {
                 MIN_PW_LEN, MAX_PW_LEN
             ))
         } else {
-            let res = send_message(dev_path, msg, CMD_INIT_VAULT, timeout.unwrap_or(2000))?;
+            let res = send_message(
+                dev_path,
+                msg,
+                CMD_INIT_VAULT,
+                timeout.unwrap_or(EXTENDED_UART_DELAY),
+            )?;
             check_status_msg(res)
         }
     }

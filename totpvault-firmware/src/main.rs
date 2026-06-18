@@ -348,8 +348,12 @@ impl System {
                 tv_sec: 0,
                 tv_usec: 0,
             };
+            let res: i32;
             unsafe {
-                sys::gettimeofday(&mut current_tv, core::ptr::null_mut());
+                res = sys::gettimeofday(&mut current_tv, core::ptr::null_mut());
+            }
+            if res != 0 {
+                return Err("Unable to set time of day!".to_string());
             }
 
             // Is the new timestamp LESS than the current one OR is the difference between the new and old one > the allowed delta?
