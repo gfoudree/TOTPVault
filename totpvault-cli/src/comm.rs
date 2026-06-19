@@ -1,7 +1,6 @@
 use log::debug;
 use rmp_serde::Serializer;
 use serde::Serialize;
-use serialport::SerialPort;
 use std::fmt::Debug;
 use std::io::Read;
 use std::time::Duration;
@@ -32,15 +31,53 @@ pub fn check_status_msg(resp: Vec<u8>) -> Result<(), String> {
     }
 }
 
-fn transmit_bytes(dev_path: &str, data: Vec<u8>, delay: u64) -> Result<Vec<u8>, String> {
-    let mut resp = [0; 2048];
+/// Read exactly `n` bytes from the port, blocking until all bytes arrive or the port times out.
+fn read_exact(port: &mut Box<dyn serialport::SerialPort>, n: usize) -> Result<Vec<u8>, String> {
+    let mut buf = vec![0u8; n];
+    let mut total = 0;
+    while total < n {
+        match port.read(&mut buf[total..]) {
+            Ok(0) => return Err("Serial port closed unexpectedly".to_string()),
+            Ok(k) => total += k,
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                return Err(format!(
+                    "Timed out waiting for response from device (got {}/{} bytes)",
+                    total, n
+                ));
+            }
+            Err(e) => return Err(format!("Error reading from serial port: {}", e)),
+        }
+    }
+    Ok(buf)
+}
+
+fn transmit_bytes(dev_path: &str, data: Vec<u8>, timeout_ms: u64) -> Result<Vec<u8>, String> {
     let mut port = serialport::new(dev_path, 115_200)
-        .timeout(Duration::from_millis(10000))
+        .timeout(Duration::from_millis(timeout_ms))
         .open()
         .map_err(|e| format!("Unable to open serial port {}: {}", dev_path, e))?;
 
-    // Before sending a message, clear read buffer
-    empty_serial_buffer(&mut port, dev_path)?;
+    // Drain any stale bytes that were left over from a previous (possibly interrupted) operation.
+    // Only drain if there are actually bytes waiting — avoids blocking 100 ms on every call
+    // when the buffer is already empty.
+    let stale = port
+        .bytes_to_read()
+        .map_err(|e| format!("Unable to query serial port buffer: {}", e))?;
+    if stale > 0 {
+        port.set_timeout(Duration::from_millis(100))
+            .map_err(|e| format!("Unable to set serial port timeout: {}", e))?;
+        let mut drain_buf = [0u8; 4096];
+        loop {
+            match port.read(&mut drain_buf) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => continue, // keep draining
+            }
+        }
+    }
+
+    // Restore the operation timeout for the actual request/response
+    port.set_timeout(Duration::from_millis(timeout_ms))
+        .map_err(|e| format!("Unable to set serial port timeout: {}", e))?;
 
     let written_bytes = port
         .write(&data)
@@ -49,25 +86,30 @@ fn transmit_bytes(dev_path: &str, data: Vec<u8>, delay: u64) -> Result<Vec<u8>, 
         return Err("Could not write all the data to the serial port!".to_string());
     }
 
-    // MUST wait some time for ESP32 to complete and send a response, otherwise we'll have truncated data and strange errors
-    std::thread::sleep(Duration::from_millis(delay));
+    // Read the 2-byte little-endian length prefix the firmware prepends to every response.
+    let len_bytes = read_exact(&mut port, 2)?;
+    let payload_len = u16::from_le_bytes([len_bytes[0], len_bytes[1]]) as usize;
+    if payload_len == 0 || payload_len > 4096 {
+        return Err(format!(
+            "Implausible response length from device: {} bytes",
+            payload_len
+        ));
+    }
 
-    let read_bytes = port
-        .read(&mut resp[..])
-        .map_err(|e| format!("Error reading from serial port {}: {}", dev_path, e))?;
-    Ok(Vec::from(&resp[0..read_bytes])) // Trim response array to size of read bytes otherwise returned vector is always 2k
+    // Now read exactly that many bytes — no guessing, no sleeping.
+    read_exact(&mut port, payload_len)
 }
 
-pub fn send_command(dev_path: &str, command: u8, delay: u64) -> Result<Vec<u8>, String> {
+pub fn send_command(dev_path: &str, command: u8, timeout_ms: u64) -> Result<Vec<u8>, String> {
     let data: Vec<u8> = vec![command];
-    transmit_bytes(dev_path, data, delay)
+    transmit_bytes(dev_path, data, timeout_ms)
 }
 
 pub fn send_message<T: Serialize + Debug + Message>(
     dev_path: &str,
     message: T,
     command: u8,
-    delay: u64,
+    timeout_ms: u64,
 ) -> Result<Vec<u8>, String> {
     let mut data = vec![command];
 
@@ -86,28 +128,5 @@ pub fn send_message<T: Serialize + Debug + Message>(
     // Append to the outgoing bytes buffer
     data.extend(buf);
 
-    transmit_bytes(dev_path, data, delay)
-}
-
-fn empty_serial_buffer(port: &mut Box<dyn SerialPort>, dev_path: &str) -> Result<(), String> {
-    let mut resp = [0; 4096];
-    let mut avail_bytes = port.bytes_to_read().map_err(|e| {
-        format!(
-            "Unable to check available bytes on serial port {}: {}",
-            dev_path, e
-        )
-    })?;
-    while avail_bytes > 0 {
-        port.read(&mut resp)
-            .map_err(|e| format!("Error reading from serial port {}: {}", dev_path, e))?;
-        std::thread::sleep(Duration::from_millis(500));
-        avail_bytes = port.bytes_to_read().map_err(|e| {
-            format!(
-                "Unable to check available bytes on serial port {}: {}",
-                dev_path, e
-            )
-        })?;
-    }
-
-    Ok(())
+    transmit_bytes(dev_path, data, timeout_ms)
 }

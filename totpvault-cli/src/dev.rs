@@ -1,8 +1,8 @@
 const VID: u16 = 0x1a86;
 const PID: u16 = 0x55d3;
 const ALLOWED_TIMESYNC_DELTA: i64 = 3;
-pub const DEFAULT_UART_DELAY: u64 = 4000;
-pub const EXTENDED_UART_DELAY: u64 = DEFAULT_UART_DELAY * 3; // Give a longer timeout for more intensive operations
+
+pub const DEFAULT_UART_DELAY: u64 = 10_000; // 10 s – covers Argon2 key-derivation on the ESP32-C3
 
 use crate::comm::{check_status_msg, send_command, send_message};
 use crate::*;
@@ -127,7 +127,7 @@ impl TotpvaultDev {
         let resp = send_command(
             dev_path,
             CMD_DEV_INFO,
-            timeout.unwrap_or(EXTENDED_UART_DELAY),
+            timeout.unwrap_or(DEFAULT_UART_DELAY),
         )?;
         if let Some(resp_type) = resp.first() {
             // Check that we got a valid SYSINFO message
@@ -167,7 +167,7 @@ impl TotpvaultDev {
         let resp = send_command(
             dev_path,
             CMD_GET_SETTINGS,
-            timeout.unwrap_or(EXTENDED_UART_DELAY),
+            timeout.unwrap_or(DEFAULT_UART_DELAY),
         )?;
         if let Some(resp_type) = resp.first() {
             if *resp_type == MSG_GET_SETTINGS_RESPONSE && resp.len() >= 2 {
@@ -222,7 +222,7 @@ impl TotpvaultDev {
         dev_path: &str,
         timeout: Option<u64>,
     ) -> Result<Vec<CredentialInfo>, String> {
-        let resp = send_command(dev_path, CMD_LIST, timeout.unwrap_or(EXTENDED_UART_DELAY))?;
+        let resp = send_command(dev_path, CMD_LIST, timeout.unwrap_or(DEFAULT_UART_DELAY))?;
 
         if let Some(resp_type) = resp.first() {
             if *resp_type == MSG_LIST_CREDS && resp.len() >= 2 {
@@ -323,7 +323,7 @@ impl TotpvaultDev {
                 password: password.to_string(),
             },
             CMD_UNLOCK_VAULT,
-            timeout.unwrap_or(EXTENDED_UART_DELAY),
+            timeout.unwrap_or(DEFAULT_UART_DELAY),
         )?;
         check_status_msg(resp)
     }
@@ -342,7 +342,7 @@ impl TotpvaultDev {
                 dev_path,
                 msg,
                 CMD_INIT_VAULT,
-                timeout.unwrap_or(EXTENDED_UART_DELAY),
+                timeout.unwrap_or(DEFAULT_UART_DELAY),
             )?;
             check_status_msg(res)
         }

@@ -1,5 +1,5 @@
 use crate::{
-    crypto::{decrypt_block, encrypt_block, AES_IV_LEN, AES_KEY_LEN},
+    crypto::{AES_IV_LEN, AES_KEY_LEN, decrypt_block, encrypt_block},
     storage,
 };
 
@@ -148,10 +148,9 @@ impl Credential {
         nvs_storage: &mut storage::Storage,
     ) -> Result<u8, String> {
         for i in 0..MAX_CREDENTIALS {
-            if let Ok(cred) = Self::get_credential(i, encryption_key, nvs_storage) {
-                if cred.in_use == false {
-                    return Ok(i);
-                }
+            let cred = Self::get_credential(index, encryption_key, nvs_storage)?;
+            if !cred.in_use {
+                return Ok(i);
             }
         }
         Err("No available slots".to_string())

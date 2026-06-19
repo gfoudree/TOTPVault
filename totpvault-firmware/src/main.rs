@@ -461,15 +461,20 @@ impl System {
 }
 
 pub fn send_message<T: Message + Serialize + Debug>(uart: &mut uart::UartDriver, msg: &T) {
-    let mut buf = Vec::new();
-    buf.push(msg.message_type_byte()); // Add the message type byte to the beginning
+    let mut payload = Vec::new();
+    payload.push(msg.message_type_byte()); // Add the message type byte to the beginning
 
     // Add the remaining bytes into the buffer
-    let m = msg.serialize(&mut Serializer::new(&mut buf));
+    let m = msg.serialize(&mut Serializer::new(&mut payload));
     if m.is_err() {
         println!("Error serializing message: {}", m.unwrap_err());
     } else {
-        uart.write(&buf).unwrap();
+        // Prepend 2-byte little-endian length so the host can read exactly the right number of bytes
+        let len = payload.len() as u16;
+        let mut framed = Vec::with_capacity(2 + payload.len());
+        framed.extend_from_slice(&len.to_le_bytes());
+        framed.extend_from_slice(&payload);
+        uart.write(&framed).unwrap();
     }
 }
 

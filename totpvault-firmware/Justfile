@@ -125,6 +125,9 @@ clean:
     rm -f {{PARTITION_TABLE_SIGNED}} {{PARTITION_TABLE_ENCRYPTED}}
     rm -f {{FLASH_IMAGE}} {{EFUSE_FILE}} hmac_key.bin digest.bin
 
+test:
+    ESP_PORT={{ESPPORT}} cd totpvault-cli && cargo test -- --no-capture
+
 # --- QEMU & Internal ---
 
 [private]
