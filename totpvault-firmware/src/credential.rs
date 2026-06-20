@@ -148,7 +148,7 @@ impl Credential {
         nvs_storage: &mut storage::Storage,
     ) -> Result<u8, String> {
         for i in 0..MAX_CREDENTIALS {
-            let cred = Self::get_credential(index, encryption_key, nvs_storage)?;
+            let cred = Self::get_credential(i, encryption_key, nvs_storage)?;
             if !cred.in_use {
                 return Ok(i);
             }

@@ -11,19 +11,22 @@ mod tests {
     use rand_older::rngs::OsRng;
     use rmp_serde::to_vec;
     use serial_test::serial;
+    use std::time;
     use std::{env, thread, time::Duration};
     use totp_rs::{Secret, TOTP};
     use totpvault_lib::{
-        AuthenticateChallengeMsg, CMD_ATTEST, CreateEntryMsg, MAX_PW_LEN, MSG_STATUS_MSG, Message,
-        StatusMsg,
+        AUTO_VAULT_LOCK_SECONDS, AUTOLOCK_OFF, AUTOLOCK_ON, AuthenticateChallengeMsg, CMD_ATTEST,
+        CreateEntryMsg, MAX_PW_LEN, MSG_STATUS_MSG, Message, SETTING_AUTOLOCK, StatusMsg,
     };
 
+    const TEST_PASSWORD: &str = "password12345!";
+
     fn init_vault(dev: &String) {
-        let valid_pw = "password12345!";
+        let valid_pw = TEST_PASSWORD;
         TotpvaultDev::init_vault(&dev, None, valid_pw).unwrap();
     }
     fn unlock_vault(dev: &String) {
-        let valid_pw = "password12345!";
+        let valid_pw = TEST_PASSWORD;
         TotpvaultDev::unlock_vault(&dev, None, valid_pw).unwrap();
     }
 
@@ -222,6 +225,82 @@ mod tests {
     // Hardware tests
     #[test]
     #[serial]
+    fn test_hw_autolock() {
+        // Let the port be specified as an env variable
+        let dev = match env::var("ESP_PORT") {
+            Ok(user_provided_port) => user_provided_port,
+            Err(_) => TotpvaultDev::find_device().unwrap(),
+        };
+
+        // Create with valid password
+        init_vault(&dev);
+
+        TotpvaultDev::unlock_vault(&dev, None, TEST_PASSWORD).unwrap();
+
+        // Set autolock off to test
+        TotpvaultDev::set_setting(&dev, None, SETTING_AUTOLOCK, "off").unwrap();
+        let settings = TotpvaultDev::get_all_settings(&dev, None).unwrap();
+        assert!(settings.get(SETTING_AUTOLOCK).unwrap() == AUTOLOCK_OFF);
+
+        println!("Waiting {AUTO_VAULT_LOCK_SECONDS} seconds to make sure vault does not lock...");
+        thread::sleep(time::Duration::from_secs(AUTO_VAULT_LOCK_SECONDS + 5));
+        assert!(TotpvaultDev::list_stored_credentials(&dev, None).is_ok()); // Make sure it didn't lock on us
+        assert!(
+            TotpvaultDev::get_device_status(&dev, None)
+                .unwrap()
+                .vault_unlocked
+                == true
+        );
+
+        // Set autolock timer
+        TotpvaultDev::set_setting(&dev, None, SETTING_AUTOLOCK, "on").unwrap();
+
+        // Check that setting worked
+        assert!(
+            TotpvaultDev::get_all_settings(&dev, None)
+                .unwrap()
+                .get(SETTING_AUTOLOCK)
+                .unwrap()
+                == AUTOLOCK_ON
+        );
+        // Wait again...
+        thread::sleep(time::Duration::from_secs(AUTO_VAULT_LOCK_SECONDS + 5));
+        assert!(
+            TotpvaultDev::get_device_status(&dev, None)
+                .unwrap()
+                .vault_unlocked
+                == false
+        );
+
+        // Unlock vault so you can change the setting
+        TotpvaultDev::unlock_vault(&dev, None, TEST_PASSWORD).unwrap();
+
+        // Disable autolock timer and wait again...
+        TotpvaultDev::set_setting(&dev, None, SETTING_AUTOLOCK, "off").unwrap();
+        // Vault should still be locked
+
+        // Now wait to make sure it doesn't unlock itself
+        TotpvaultDev::unlock_vault(&dev, None, TEST_PASSWORD).unwrap();
+
+        assert!(
+            TotpvaultDev::get_device_status(&dev, None)
+                .unwrap()
+                .vault_unlocked
+                == true
+        );
+
+        thread::sleep(time::Duration::from_secs(AUTO_VAULT_LOCK_SECONDS + 5));
+
+        assert!(
+            TotpvaultDev::get_device_status(&dev, None)
+                .unwrap()
+                .vault_unlocked
+                == true
+        );
+    }
+
+    #[test]
+    #[serial]
     fn test_hw_init_vault() {
         let valid_totp_secret = "HVR4CFHAFOWFGGFAGSA5JVTIMMPG6GMT";
 
@@ -271,7 +350,7 @@ mod tests {
             TotpvaultDev::unlock_vault(&dev, None, "a".repeat(MAX_PW_LEN + 10).as_str()).is_err()
         );
 
-        TotpvaultDev::unlock_vault(&dev, None, "password12345!").unwrap();
+        TotpvaultDev::unlock_vault(&dev, None, TEST_PASSWORD).unwrap();
         status = TotpvaultDev::get_device_status(&dev, None).unwrap();
         assert_eq!(status.vault_unlocked, true);
         assert_eq!(status.used_slots, 0);

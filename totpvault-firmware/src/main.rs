@@ -31,23 +31,6 @@ mod credential;
 mod crypto;
 mod storage;
 
-const SALT_LEN: usize = 32; // 256 bits
-
-// Argon2id parameters for ESP32-C3: m=16 (16 KiB memory cost), t=3 iterations, p=1 thread
-const ARGON2_M_COST: u32 = 16; // memory in KiB
-const ARGON2_T_COST: u32 = 3; // iterations
-const ARGON2_P_COST: u32 = 1; // parallelism (single-threaded)
-
-const ENCRYPTION_MAGIC: [u8; 8] = [0xDE, 0xAD, 0xBE, 0xEF, 0xC0, 0xFF, 0xEE, 0x00];
-
-const MAX_TIMESTAMP_SET_DELTA: u64 = 1024;
-const AUTO_VAULT_LOCK_SECONDS: u64 = 600;
-const NVS_KEY_ED25519: &str = "ED25519_KEY";
-
-const MAX_FAILED_AUTH_ATTEMPTS: u32 = 5;
-const LOGIN_COOLDOWN_SECS: u32 = 60;
-const LOGIN_COOLDOWN_WINDOW_SECS: u32 = 60;
-
 // Static (global) variable for 'static lifetime. Mutex for safety, Cell<bool> allows multiple mutable references by only allowing 'interior mutability'
 static VAULT_STATUS_UNLOCKED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
@@ -113,10 +96,14 @@ impl System {
         }
     }
 
-    fn set_setting(&mut self, set_msg: &SetSettingMsg) -> Result<(), String> {
+    /// Updates a K-V setting in the NVS and live system state. Returns the previous value of the setting
+    fn set_setting(&mut self, set_msg: &SetSettingMsg) -> Result<String, String> {
         if !set_msg.validate() {
             return Err("Invalid setting key or value".to_string());
         }
+
+        // Get current value of the setting
+        let cur_val = self.settings.get(&set_msg.key).unwrap().clone();
 
         // Update in NVS
         self.nvs_storage
@@ -124,9 +111,9 @@ impl System {
 
         // Update in current system state
         self.settings
-            .insert(set_msg.key.to_string(), set_msg.value.to_string());
+            .insert(set_msg.key.to_string(), set_msg.value.clone());
 
-        Ok(())
+        Ok(cur_val.to_string())
     }
 
     fn get_all_settings(&self) -> GetSettingsResponseMsg {
@@ -500,12 +487,19 @@ fn arm_auto_lock_timer(autolock_timer: &mut TimerDriver) -> () {
     autolock_timer.enable(true).unwrap();
 }
 
+fn disarm_auto_lock_timer(autolock_timer: &mut TimerDriver) -> () {
+    autolock_timer.disable_interrupt().unwrap();
+    autolock_timer.enable(false).unwrap();
+    autolock_timer.enable_alarm(false).unwrap();
+}
+
 fn timer_callback_lock_vault() {
     critical_section::with(|cs| {
         let f = VAULT_STATUS_UNLOCKED.borrow(cs);
         f.set(false);
     });
 }
+
 fn main() {
     // It is necessary to call this function once, otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
@@ -752,7 +746,23 @@ fn main() {
                         } else {
                             match rmp_serde::from_slice::<SetSettingMsg>(&buf[1..num_bytes_read]) {
                                 Ok(set_msg) => match sys.set_setting(&set_msg) {
-                                    Ok(_) => send_response_message(&mut uart, SUCCESS_MSG, false),
+                                    Ok(prev_setting_val) => {
+                                        // Set the auto-lock timer if the setting just got toggled
+                                        if set_msg.key == SETTING_AUTOLOCK {
+                                            if prev_setting_val == AUTOLOCK_ON
+                                                && set_msg.value == AUTOLOCK_OFF
+                                            {
+                                                // Autolock turned OFF
+                                                disarm_auto_lock_timer(&mut autolock_timer);
+                                            } else if prev_setting_val == AUTOLOCK_OFF
+                                                && set_msg.value == AUTOLOCK_ON
+                                            {
+                                                // Autolock turned ON
+                                                arm_auto_lock_timer(&mut autolock_timer);
+                                            }
+                                        }
+                                        send_response_message(&mut uart, SUCCESS_MSG, false);
+                                    }
                                     Err(e) => send_response_message(&mut uart, e.as_str(), true),
                                 },
                                 Err(_e) => send_response_message(

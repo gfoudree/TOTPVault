@@ -42,6 +42,23 @@ pub const AUTOLOCK_OFF: &str = "off";
 
 pub const SUCCESS_MSG: &str = "Success!";
 
+pub const SALT_LEN: usize = 32; // 256 bits
+
+// Argon2id parameters for ESP32-C3: m=16 (16 KiB memory cost), t=3 iterations, p=1 thread
+pub const ARGON2_M_COST: u32 = 16; // memory in KiB
+pub const ARGON2_T_COST: u32 = 3; // iterations
+pub const ARGON2_P_COST: u32 = 1; // parallelism (single-threaded)
+
+pub const ENCRYPTION_MAGIC: [u8; 8] = [0xDE, 0xAD, 0xBE, 0xEF, 0xC0, 0xFF, 0xEE, 0x00];
+
+pub const MAX_TIMESTAMP_SET_DELTA: u64 = 1024;
+pub const AUTO_VAULT_LOCK_SECONDS: u64 = 600;
+pub const NVS_KEY_ED25519: &str = "ED25519_KEY";
+
+pub const MAX_FAILED_AUTH_ATTEMPTS: u32 = 5;
+pub const LOGIN_COOLDOWN_SECS: u32 = 60;
+pub const LOGIN_COOLDOWN_WINDOW_SECS: u32 = 60;
+
 fn print_debug_msg(_msg: String) {
     // For the desktop
     #[cfg(not(target_arch = "riscv32"))]
@@ -56,6 +73,7 @@ fn print_debug_msg(_msg: String) {
         println!("{}", _msg);
     }
 }
+
 pub trait Message {
     fn validate(&self) -> bool;
     fn message_type_byte(&self) -> u8;
