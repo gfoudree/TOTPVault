@@ -180,3 +180,36 @@ totpvault-cli lock-vault
 totpvault-cli lock-vault
 Locked vault
 ```
+
+## Get Settings
+Gets all settings and their values for the device
+
+**Usage:**
+```bash
+totpvault-cli get-config
+```
+
+**Example:**
+```bash
+totpvault-cli get-config
+Device Settings:
+        auto-lock: off
+```
+
+
+## Set Autolock
+Sets the autolock feature for the vault (locks vault after 10 min)
+
+**Usage:**
+```bash
+totpvault-cli set-config --vault-autolock <on/off>
+```
+
+**Example:**
+```bash
+totpvault-cli set-config --vault-autolock off
+Successfully set setting 'autolock' to 'off'
+
+totpvault-cli set-config --vault-autolock on
+Successfully set setting 'autolock' to 'on'
+```

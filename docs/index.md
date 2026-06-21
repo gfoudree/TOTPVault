@@ -12,19 +12,19 @@ TOTPVault should work on almost all TOTP-based authentication sites, the list be
 
 | Website       | Supported |
 |---------------|-----------|
-| Google        | Y         |
-| Digital Ocean |           |
-| Amazon        |           |
-| Microsoft     |           |
-| Instagram     |           |
-| Paypal        |           |
-| eBay          |           |
-| Cloudflare    |           |
-| Dropbox       |           |
-| Github        |           |
-| Gitlab        |           |
-| Linkedin      |           |
-| Protonmail    |           |
+| Google        |     Y     |
+| Digital Ocean |     Y     |
+| Amazon        |     Y     |
+| Microsoft     |     Y     |
+| Instagram     |     Y     |
+| Paypal        |     Y     |
+| eBay          |     Y     |
+| Cloudflare    |     Y     |
+| Dropbox       |     Y     |
+| Github        |     Y     |
+| Gitlab        |     Y     |
+| Linkedin      |     Y     |
+| Protonmail    |     Y     |
 
 
 # FAQ
@@ -45,11 +45,3 @@ No, as long as your password is strong they cannot unlock the vault and generate
 Try reinserting the device and look for a USB device with the VID 0x1A86 and PID 0x55D3. 
 
 You can run `dev-info -v` which will print verbose output as to how the device is selected. It is possible another device exists with the same VID/PID in which case use `-p` to specify the path to the exact device
-
-### "unexpected end of file" Error
-
-```
-Unable to get device status from: /dev/tty.usbmodem59090561791
-	Error = IO error while reading data: unexpected end of file
-```
-The vault is taking a while to perform operations, increase the timeout in the user application with `--timeout`

@@ -8,17 +8,19 @@
 
 
 ## Steps
-1. Install `esptool`: `pip install esptool`
-2. Download the latest firmware version `flash.bin`
-3. Push and hold the DFU button on the device (left button) while inserting it into the computer, then release the DFU button
-4. Identify the device `esptool security-info`
+- Install `esptool`: `pip install esptool`
+
+- Download the latest firmware version `flash.bin`
+
+- Push and hold the DFU button on the device (left button) while inserting it into the computer, then release the DFU button
+
+- Identify the device `esptool security-info`
 
 ```bash
 esptool v5.3.0
 Connected to ESP32-C3 on /dev/cu.usbserial-TFGTNDFV:
 Chip type:          ESP32-C3 in Secure Download Mode
 
-Warning: Stub flasher is not supported in Secure Download Mode, it has been disabled. Set --no-stub to suppress this warning.
 Security Information:
 =====================
 Flags: 0x000004f5 (0b10011110101)
@@ -42,7 +44,7 @@ Icache in UART download mode: Disabled
 JTAG: Permanently Disabled
 ```
 
-5. Flash the new firmware with `esptool --chip esp32c3 -p <SERIAL PORT> --no-stub write-flash --no-compress --force --flash-mode dio --flash-freq 80m --flash-size 4MB 0x0 flash.bin`
+- Flash the new firmware with `esptool --chip esp32c3 -p <SERIAL PORT> --no-stub write-flash --no-compress --force --flash-mode dio --flash-freq 80m --flash-size 4MB 0x0 flash.bin`
 
 ```bash
 esptool v5.3.0
@@ -59,4 +61,4 @@ Cannot verify written data if encrypted or in secure download mode.
 Hard resetting via RTS pin...
 ```
 
-6. Unplug and reinsert the device
+- Unplug and reinsert the device

@@ -35,3 +35,4 @@ extra_css:
 
 markdown_extensions:
   - attr_list
+  - fenced_code
