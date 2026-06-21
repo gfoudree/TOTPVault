@@ -455,51 +455,51 @@
 </tr>
 <tr>
 <td>Digital Ocean</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>Amazon</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>Microsoft</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>Instagram</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>Paypal</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>eBay</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>Cloudflare</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>Dropbox</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>Github</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>Gitlab</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>Linkedin</td>
-<td></td>
+<td>Y</td>
 </tr>
 <tr>
 <td>Protonmail</td>
-<td></td>
+<td>Y</td>
 </tr>
 </tbody>
 </table>
@@ -515,11 +515,6 @@
 <h3 id="device-does-not-show-up">Device does not show up</h3>
 <p>Try reinserting the device and look for a USB device with the VID 0x1A86 and PID 0x55D3. </p>
 <p>You can run <code>dev-info -v</code> which will print verbose output as to how the device is selected. It is possible another device exists with the same VID/PID in which case use <code>-p</code> to specify the path to the exact device</p>
-<h3 id="unexpected-end-of-file-error">"unexpected end of file" Error</h3>
-<pre><code>Unable to get device status from: /dev/tty.usbmodem59090561791
-    Error = IO error while reading data: unexpected end of file
-</code></pre>
-<p>The vault is taking a while to perform operations, increase the timeout in the user application with <code>--timeout</code></p>
 
 
 

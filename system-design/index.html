@@ -608,7 +608,7 @@
 <h3 id="secret-storage">Secret Storage</h3>
 <ul>
 <li>TOTP secrets are encrypted at rest using AES-256-GCM, ensuring data confidentiality</li>
-<li>Encryption keys derived from vault password using PBKDF2, device has no knowledge of decryption keys without vault password</li>
+<li>Encryption keys derived from vault password using Argon2id, device has no knowledge of decryption keys without vault password</li>
 <li>The keys are never stored on the device (ie. the device cannot decrypt any secrets without the user providing the vault password)</li>
 <li>Encrypted TOTP secrets are stored in NVS (flash) on the same die as the microcontroller, making it difficult to sniff/extract them</li>
 <li>Secrets are zeroed from memory immediately after use
@@ -629,7 +629,7 @@
 <ul>
 <li>TOTP secrets are encrypted and stored in on-chip flash memory, substantially complicating attacks to dump or snoop secrets</li>
 <li>
-<p>USB interface is delegated to a separate chip (CH343P) from the main microcontroller (ESP32-C3) in order to isolate any USB-level exploits from the main uC
+<p>USB interface is delegated to a separate chip (CH343P) from the main microcontroller (ESP32-C3) in order to isolate any USB-level exploits from the main processor
     <br/><br/>
     <img alt="USB Isolation" src="../images/usb_isolation_diagram.png" /></p>
 </li>

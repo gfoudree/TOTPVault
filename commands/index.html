@@ -470,6 +470,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#get-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Get Settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-autolock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set Autolock
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -706,6 +728,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#get-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Get Settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-autolock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set Autolock
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -846,6 +890,28 @@ Successfully unlocked vault
 <p><strong>Example:</strong></p>
 <pre><code class="language-bash">totpvault-cli lock-vault
 Locked vault
+</code></pre>
+<h2 id="get-settings">Get Settings</h2>
+<p>Gets all settings and their values for the device</p>
+<p><strong>Usage:</strong></p>
+<pre><code class="language-bash">totpvault-cli get-config
+</code></pre>
+<p><strong>Example:</strong></p>
+<pre><code class="language-bash">totpvault-cli get-config
+Device Settings:
+        auto-lock: off
+</code></pre>
+<h2 id="set-autolock">Set Autolock</h2>
+<p>Sets the autolock feature for the vault (locks vault after 10 min)</p>
+<p><strong>Usage:</strong></p>
+<pre><code class="language-bash">totpvault-cli set-config --vault-autolock &lt;on/off&gt;
+</code></pre>
+<p><strong>Example:</strong></p>
+<pre><code class="language-bash">totpvault-cli set-config --vault-autolock off
+Successfully set setting 'autolock' to 'off'
+
+totpvault-cli set-config --vault-autolock on
+Successfully set setting 'autolock' to 'on'
 </code></pre>
 
 
